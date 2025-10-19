@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/routes.dart';
 import 'screens/splash_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/csv_upload_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/card_scan_screen.dart';
 import 'screens/extraction_screen.dart';
@@ -22,6 +23,7 @@ class Card2SheetApp extends StatelessWidget {
       routes: {
         AppRoutes.splash: (_) => const SplashScreen(),
         AppRoutes.onboarding: (_) => const OnboardingScreen(),
+        AppRoutes.csvUpload: (_) => const CsvUploadScreen(),
         AppRoutes.home: (_) => const HomeScreen(),
         AppRoutes.scan: (_) => const CardScanScreen(),
         AppRoutes.extraction: (_) => const ExtractionScreen(),

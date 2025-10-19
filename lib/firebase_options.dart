@@ -11,9 +11,9 @@ class DefaultFirebaseOptions {
   static FirebaseOptions? get maybePlatform {
     // If dotenv not initialized yet, skip and return null.
     if (!dotenv.isInitialized) {
-      debugPrint(
-        '[firebase] dotenv not initialized; skipping Firebase options',
-      );
+      if (kDebugMode) {
+        debugPrint('[firebase] dotenv not initialized; skipping Firebase options');
+      }
       return null;
     }
     // Attempt to build options from .env variables; if any critical ones missing return null.
@@ -23,15 +23,10 @@ class DefaultFirebaseOptions {
     final senderId = dotenv.maybeGet('FIREBASE_MESSAGING_SENDER_ID');
     final storageBucket = dotenv.maybeGet('FIREBASE_STORAGE_BUCKET');
 
-    if ([
-      apiKey,
-      appId,
-      projectId,
-      senderId,
-    ].any((v) => v == null || v.isEmpty)) {
-      debugPrint(
-        '[firebase] Missing required env vars; skipping Firebase init',
-      );
+    if ([apiKey, appId, projectId, senderId].any((v) => v == null || v.isEmpty)) {
+      if (kDebugMode) {
+        debugPrint('[firebase] Missing required env vars; skipping Firebase init');
+      }
       return null;
     }
     return FirebaseOptions(

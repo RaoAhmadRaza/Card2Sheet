@@ -20,4 +20,8 @@ Future<void> main() async {
     await Firebase.initializeApp(options: fbOptions);
   }
   runApp(const ProviderScope(child: Card2SheetApp()));
+  // Give the UI a chance to settle; helps reduce first-frame jank on some devices
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    // No-op warm up; place small non-blocking work here if needed
+  });
 }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/result_provider.dart';
 import '../services/csv_service.dart';
+import '../services/xlsx_service.dart';
 
 class ResultsScreen extends ConsumerStatefulWidget {
   const ResultsScreen({super.key});
@@ -16,6 +17,7 @@ class ResultsScreen extends ConsumerStatefulWidget {
 
 class _ResultsScreenState extends ConsumerState<ResultsScreen> {
   final _csv = CSVService();
+  final _xlsx = XlsxService();
   String _status = '';
 
   Future<void> _appendToCsv() async {
@@ -51,6 +53,23 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
             ElevatedButton(
               onPressed: _appendToCsv,
               child: const Text('Append to existing CSV'),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: () async {
+                final data = state.aiResult;
+                if (data == null) {
+                  setState(() => _status = 'No AI result to save');
+                  return;
+                }
+                try {
+                  final f = await _xlsx.saveAsXlsx(data);
+                  setState(() => _status = 'Saved: ${f.path}');
+                } catch (e) {
+                  setState(() => _status = 'Save failed: $e');
+                }
+              },
+              child: const Text('Save Excel (.xlsx, bold headers)'),
             ),
             if (_status.isNotEmpty) ...[
               const SizedBox(height: 8),

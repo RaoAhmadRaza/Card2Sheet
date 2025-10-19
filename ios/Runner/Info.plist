@@ -46,11 +46,15 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
     
-		<!-- Photo library permission for picking images (required for image picker/file picker) -->
-		<key>NSPhotoLibraryUsageDescription</key>
-		<string>This app needs photo library access to pick business card images.</string>
+	<!-- Photo library permission for picking images (required for image picker/file picker) -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs photo library access to pick business card images.</string>
 
-		<!-- Allow HTTP to localhost for development proxy (do not enable for production) -->
+	<!-- Camera permission for business card scanning -->
+	<key>NSCameraUsageDescription</key>
+	<string>We need camera access to scan business cards</string>
+
+	<!-- Allow HTTP to localhost for development proxy (do not enable for production) -->
 		<key>NSAppTransportSecurity</key>
 		<dict>
 			<key>NSAllowsArbitraryLoads</key>

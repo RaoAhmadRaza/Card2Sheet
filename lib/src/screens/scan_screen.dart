@@ -7,8 +7,10 @@ import 'package:file_picker/file_picker.dart';
 import '../services/ai_service.dart';
 import '../services/ocr_service.dart';
 import '../services/csv_service.dart';
+import '../services/xlsx_service.dart';
 import '../../core/providers/template_provider.dart';
 import '../../core/providers/result_provider.dart';
+import '../../core/preferences.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
@@ -21,11 +23,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   final _ai = AIService();
   final _ocr = OCRService();
   final _csv = CSVService();
+  final _xlsx = XlsxService();
 
   String _status = 'Idle';
   String _recognizedText = '';
   Map<String, dynamic>? _aiResult;
   File? _savedCsv;
+  File? _savedXlsx;
 
   List<String> get _headersOrDefault {
     final headers = ref.read(templateProvider);
@@ -116,6 +120,25 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         _status = 'Saved: ${file.path}';
       });
       ScanResultStore.instance.setSavedCsv(file);
+      await Preferences.setLastSheetPath(file.path);
+    } catch (e) {
+      setState(() => _status = 'Save failed: $e');
+    }
+  }
+
+  Future<void> _saveXlsx() async {
+    if (_aiResult == null) {
+      setState(() => _status = 'Nothing to save yet');
+      return;
+    }
+    setState(() => _status = 'Saving Excel...');
+    try {
+      final file = await _xlsx.saveAsXlsx(_aiResult!);
+      setState(() {
+        _savedXlsx = file;
+        _status = 'Saved: ${file.path}';
+      });
+      await Preferences.setLastSheetPath(file.path);
     } catch (e) {
       setState(() => _status = 'Save failed: $e');
     }
@@ -150,6 +173,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                 ElevatedButton(
                   onPressed: _saveCsv,
                   child: const Text('Save CSV'),
+                ),
+                ElevatedButton(
+                  onPressed: _saveXlsx,
+                  child: const Text('Save Excel (.xlsx, bold headers)'),
                 ),
               ],
             ),
@@ -217,6 +244,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                           const SizedBox(height: 8),
                           Text(
                             'Saved: ${_savedCsv!.path}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                        if (_savedXlsx != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Saved: ${_savedXlsx!.path}',
                             style: const TextStyle(
                               fontSize: 12,
                               color: Colors.green,
