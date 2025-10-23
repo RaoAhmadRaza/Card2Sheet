@@ -30,8 +30,8 @@ class _ProcessingScreenState extends State<ProcessingScreen>
   bool _isCompleting = false;
   bool _progressComplete = false;
   List<ProcessingStep> _steps = [
-    const ProcessingStep('Analyzing image...', false),
     const ProcessingStep('Extracting text...', false),
+    const ProcessingStep('Structuring data with AI...', false),
     const ProcessingStep('Finalizing results...', false),
   ];
 
@@ -96,8 +96,7 @@ class _ProcessingScreenState extends State<ProcessingScreen>
   }
 
   Future<void> _startProcessing() async {
-    // Start progress animation
-    _progressController.forward();
+  // Initialize progress at 0; progress advances only after each step completes.
     
     // Step 1: Extracting text
     setState(() {
@@ -111,11 +110,12 @@ class _ProcessingScreenState extends State<ProcessingScreen>
       final svc = OCRService();
       final extractedText = await svc.extractTextFromImage(File(widget.imagePath));
       
-      // Mark step 1 complete
+      // Mark step 1 (OCR) complete and advance progress to ~33%
       setState(() {
-        _steps[0] = ProcessingStep('Extracting text...', true);
+        _steps[0] = const ProcessingStep('Extracting text...', true);
         _currentStep = 1;
       });
+      await _advanceProgressTo(1 / 3);
       
       // Light haptic for step completion
       HapticFeedback.selectionClick();
@@ -130,21 +130,23 @@ class _ProcessingScreenState extends State<ProcessingScreen>
       final aiSvc = AIProcessingService();
       final result = await aiSvc.processOcrText(extractedText);
 
-      // Mark structuring complete
+      // Mark structuring complete and advance progress to ~66%
       setState(() {
-        _steps[1] = ProcessingStep('Structuring data with AI...', true);
+        _steps[1] = const ProcessingStep('Structuring data with AI...', true);
         _currentStep = 2; // finalizing
       });
+      await _advanceProgressTo(2 / 3);
 
       // Light haptic for step completion
       HapticFeedback.selectionClick();
 
-      // Complete final step
+      // Complete final step and advance progress to 100%
       setState(() {
-        _steps[2] = ProcessingStep('Complete!', true);
+        _steps[2] = const ProcessingStep('Finalizing results...', true);
         _isCompleting = true;
         _progressComplete = true;
       });
+      await _advanceProgressTo(1.0);
 
       // Haptic feedback at 100%
       HapticFeedback.lightImpact();
@@ -177,6 +179,21 @@ class _ProcessingScreenState extends State<ProcessingScreen>
           SnackBar(content: Text('Processing failed: $e')),
         );
         Navigator.of(context).pop();
+      }
+    }
+  }
+
+  Future<void> _advanceProgressTo(double target) async {
+    final clamped = target.clamp(0.0, 1.0);
+    if (_progressController.value < clamped) {
+      try {
+        await _progressController.animateTo(
+          clamped,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeOutCubic,
+        );
+      } catch (_) {
+        // ignore if animation cancelled due to dispose/navigation
       }
     }
   }
