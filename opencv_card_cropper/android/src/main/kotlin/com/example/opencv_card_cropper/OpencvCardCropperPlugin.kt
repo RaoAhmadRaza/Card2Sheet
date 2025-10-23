@@ -42,8 +42,8 @@ class OpencvCardCropperPlugin: FlutterPlugin, MethodCallHandler {
           result.error("ARG", "imagePath is required", null)
           return
         }
-        @Suppress("UNCHECKED_CAST")
-        val roi = args["roi"] as? Map<String, Number>
+  @Suppress("UNCHECKED_CAST")
+  val roi = args?.get("roi") as? Map<String, Number>
         try {
           val outPath = deskewCard(imagePath, roi)
           result.success(outPath)

@@ -8,7 +8,8 @@ plugins {
 
 android {
     namespace = "com.example.card2sheet"
-    compileSdk = flutter.compileSdkVersion
+    // Bump to 36 per plugin requirements (camera_android, image_cropper, opencv_card_cropper)
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
     // Align NDK with plugin requirements
     ndkVersion = "27.0.12077973"

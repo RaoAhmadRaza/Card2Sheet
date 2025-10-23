@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:card2sheet/services/opencv_cropper.dart';
-import '../../services/card_detector_service.dart';
 import 'manual_crop_screen.dart';
+import 'text_result_screen.dart';
 
 class CameraScanScreen extends StatefulWidget {
   const CameraScanScreen({super.key});
@@ -31,7 +30,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   bool _showFocusIndicator = false;
   Offset? _focusIndicatorPos; // in preview-box coordinates
   // Show guidance if last detection failed
-  bool _lastDetectFailed = false;
+  // Auto-detect removed; no failure state needed
 
   // Animation controllers for the overlay
   late AnimationController _borderAnimationController;
@@ -122,6 +121,9 @@ class _CameraScanScreenState extends State<CameraScanScreen>
             // Ensure autofocus/exposure are enabled
             await _cameraController!.setFocusMode(FocusMode.auto);
             await _cameraController!.setExposureMode(ExposureMode.auto);
+            // Force flash OFF by default (some devices default to AUTO)
+            await _cameraController!.setFlashMode(FlashMode.off);
+            _isFlashOn = false;
           } catch (_) {}
           setState(() {
             _isCameraInitialized = true;
@@ -164,44 +166,23 @@ class _CameraScanScreenState extends State<CameraScanScreen>
     });
 
     try {
+      // Make sure flash follows our toggle state (no AUTO flash)
+      await _cameraController!.setFlashMode(_isFlashOn ? FlashMode.torch : FlashMode.off);
       final image = await _cameraController!.takePicture();
       // Optional small settle delay to let focus lock
       await Future.delayed(const Duration(milliseconds: 150));
 
-      // Use CardDetectorService for detection + crop
-      final svc = CardDetectorService();
+      // Auto-detect temporarily disabled: go straight to manual crop UI
       XFile resulting = image;
-      try {
-        final result = await svc.detectAndCrop(File(image.path));
-        if (result.croppedFilePath != null) {
-          // Deskew the cropped image using native OpenCV plugin
-          final deskewed = await OpencvCropper.deskewCard(result.croppedFilePath!);
-          resulting = XFile(deskewed ?? result.croppedFilePath!);
-          _lastDetectFailed = false;
-        } else if (mounted) {
-          _lastDetectFailed = true;
-          // Offer manual crop as a fallback
-          final edited = await Navigator.of(context).push<String>(
-            MaterialPageRoute(
-              builder: (_) => ManualCropScreen(imagePath: image.path),
-              fullscreenDialog: true,
-            ),
-          );
-          if (edited != null) {
-            // Deskew after manual crop as well
-            final deskewed = await OpencvCropper.deskewCard(edited);
-            resulting = XFile(deskewed ?? edited);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(
-                (result.error ?? 'Could not auto-detect the card.') +
-                ' Tip: Fill the guide, tap to focus, and enable flash in low light.'
-              )),
-            );
-          }
-        }
-      } finally {
-        svc.dispose();
+      final edited = await Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (_) => ManualCropScreen(imagePath: image.path),
+          fullscreenDialog: true,
+        ),
+      );
+      if (edited != null) {
+        // Use exactly what the user cropped (no auto processing)
+        resulting = XFile(edited);
       }
 
       setState(() {
@@ -217,6 +198,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   }
 
   // Card detect/crop handled by CardDetectorService
+  // Auto-detect temporarily disabled; manual crop used instead
 
   void _retakeImage() {
     setState(() {
@@ -226,8 +208,32 @@ class _CameraScanScreenState extends State<CameraScanScreen>
 
   void _useImage() {
     if (_capturedImage != null) {
-      // Pass the image back to the previous screen
-      Navigator.of(context).pop(_capturedImage!.path);
+      final path = _capturedImage!.path;
+      // Navigate to OCR result screen with the selected image
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => TextResultScreen(imagePath: path),
+        ),
+      );
+    }
+  }
+
+  Future<void> _adjustCrop() async {
+    if (_capturedImage == null) return;
+    final currentPath = _capturedImage!.path;
+    final edited = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ManualCropScreen(imagePath: currentPath),
+        fullscreenDialog: true,
+      ),
+    );
+    if (!mounted) return;
+    if (edited != null) {
+      if (!mounted) return;
+      // Use exactly what the user cropped (no auto processing)
+      setState(() {
+        _capturedImage = XFile(edited);
+      });
     }
   }
 
@@ -474,12 +480,16 @@ class _CameraScanScreenState extends State<CameraScanScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  'Align your card within the frame. Use flash in low light.',
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                Expanded(
+                  child: Text(
+                    'Align your card within the frame. Use flash in low light.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -495,27 +505,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
             ),
           ),
 
-          if (_lastDetectFailed) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.info_outline, color: Colors.white70, size: 16),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Couldn\'t detect the card. Retake with better lighting and fill the frame.',
-                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          // Detection failure banner removed (auto-detect disabled)
         ],
       ),
     );
@@ -674,58 +664,87 @@ class _CameraScanScreenState extends State<CameraScanScreen>
             child: SafeArea(
               child: Container(
                 padding: const EdgeInsets.all(20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Retake button
-                    Expanded(
-                      child: Container(
-                        height: 50,
-                        margin: const EdgeInsets.only(right: 10),
-                        child: TextButton(
-                          onPressed: _retakeImage,
-                          style: TextButton.styleFrom(
-                            backgroundColor: Colors.white.withOpacity(0.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(25),
-                              side: const BorderSide(color: Colors.white),
-                            ),
+                    Align(
+                      alignment: Alignment.center,
+                      child: TextButton.icon(
+                        onPressed: _adjustCrop,
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.white.withOpacity(0.12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: const BorderSide(color: Colors.white24),
                           ),
-                          child: Text(
-                            'Retake',
-                            style: GoogleFonts.inter(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
+                        ),
+                        icon: const Icon(Icons.crop_rounded),
+                        label: Text(
+                          'Adjust Crop',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
                     ),
-
-                    // Use photo button
-                    Expanded(
-                      child: Container(
-                        height: 50,
-                        margin: const EdgeInsets.only(left: 10),
-                        child: ElevatedButton(
-                          onPressed: _useImage,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF007AFF),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(25),
-                            ),
-                          ),
-                          child: Text(
-                            'Use Photo',
-                            style: GoogleFonts.inter(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        // Retake button
+                        Expanded(
+                          child: Container(
+                            height: 50,
+                            margin: const EdgeInsets.only(right: 10),
+                            child: TextButton(
+                              onPressed: _retakeImage,
+                              style: TextButton.styleFrom(
+                                backgroundColor: Colors.white.withOpacity(0.2),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(25),
+                                  side: const BorderSide(color: Colors.white),
+                                ),
+                              ),
+                              child: Text(
+                                'Retake',
+                                style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+
+                        // Use photo button
+                        Expanded(
+                          child: Container(
+                            height: 50,
+                            margin: const EdgeInsets.only(left: 10),
+                            child: ElevatedButton(
+                              onPressed: _useImage,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF007AFF),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(25),
+                                ),
+                              ),
+                              child: Text(
+                                'Use Photo',
+                                style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
