@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
 import 'text_result_screen.dart';
 
@@ -122,6 +123,9 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         _currentStep = 1;
       });
       
+      // Light haptic for step completion
+      HapticFeedback.selectionClick();
+      
       await Future.delayed(const Duration(milliseconds: 600));
       
       // Step 2: Structuring data (simulate AI processing)
@@ -132,6 +136,9 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         _currentStep = 2;
       });
       
+      // Light haptic for step completion
+      HapticFeedback.selectionClick();
+      
       await Future.delayed(const Duration(milliseconds: 600));
       
       // Complete final step
@@ -139,6 +146,9 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         _steps[2] = ProcessingStep('Complete!', true);
         _isCompleting = true;
       });
+      
+      // Haptic feedback at 100%
+      HapticFeedback.lightImpact();
       
       // Wait for completion pause
       await Future.delayed(const Duration(milliseconds: 400));
@@ -219,7 +229,24 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                 },
               ),
               
-              // Optional overlay for completion state
+              // Processing blur overlay with subtle animation
+              if (_currentStep >= 0 && !_isCompleting)
+                AnimatedBuilder(
+                  animation: _pulseAnimation,
+                  builder: (context, child) {
+                    return BackdropFilter(
+                      filter: ui.ImageFilter.blur(
+                        sigmaX: 2.5 + (_pulseAnimation.value * 0.5),
+                        sigmaY: 2.5 + (_pulseAnimation.value * 0.5),
+                      ),
+                      child: Container(
+                        color: Colors.white.withOpacity(0.05 + (_pulseAnimation.value * 0.05)),
+                      ),
+                    );
+                  },
+                ),
+              
+              // Completion overlay
               if (_isCompleting)
                 Container(
                   color: Colors.black.withOpacity(0.05),
@@ -396,10 +423,11 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                                         shape: BoxShape.circle,
                                       ),
                                       child: isCompleted
-                                          ? const Icon(
-                                              Icons.check,
+                                          ? Icon(
+                                              Icons.check_rounded,
                                               color: Colors.white,
-                                              size: 18,
+                                              size: 16,
+                                              weight: 600,
                                             )
                                           : isActive
                                               ? AnimatedBuilder(
