@@ -18,49 +18,129 @@ class AIProcessingService {
   AIProcessingService();
 
   Future<AIProcessingResult> processOcrText(String extractedText, {String? sessionId}) async {
-    // Respect flags: if proxy is disabled or URL missing, return a safe fallback
+    // Prefer proxy; else use direct Gemini if API key is present; else pass-through.
     final useProxy = dotenv.maybeGet('USE_PROXY')?.toLowerCase() == 'true';
     final proxyUrl = dotenv.maybeGet('PROXY_URL')?.trim();
-    if (!useProxy || proxyUrl == null || proxyUrl.isEmpty) {
-      // No proxy configured: return pass-through so the app still works
+    final apiKey = dotenv.maybeGet('GEMINI_API_KEY')?.trim();
+
+    // 1) Proxy path
+    if (useProxy && proxyUrl != null && proxyUrl.isNotEmpty) {
+      final uri = Uri.parse('$proxyUrl/process-ocr');
+      final body = jsonEncode({
+        'raw_text': extractedText,
+        if (sessionId != null) 'session_id': sessionId,
+      });
+
+      final resp = await http.post(
+        uri,
+        headers: const {
+          'Content-Type': 'application/json',
+        },
+        body: body,
+      );
+
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception('AI processing failed (${resp.statusCode}): ${resp.body}');
+      }
+
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (data['ok'] != true) {
+        throw Exception('AI processing error: ${data['error'] ?? 'unknown'}');
+      }
+
+      final cleanedText = (data['cleaned_text'] as String?) ?? '';
+      final structured = (data['structured_json'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final finalJson = (data['final_json'] as Map?)?.cast<String, dynamic>() ?? structured;
+
       return AIProcessingResult(
-        cleanedText: extractedText,
-        structuredJson: const {},
-        finalJson: const {},
+        cleanedText: cleanedText,
+        structuredJson: structured,
+        finalJson: finalJson,
       );
     }
 
-    final uri = Uri.parse('$proxyUrl/process-ocr');
-    final body = jsonEncode({
-      'raw_text': extractedText,
-      if (sessionId != null) 'session_id': sessionId,
-    });
+    // 2) Direct Gemini path
+    if (apiKey != null && apiKey.isNotEmpty) {
+      try {
+        final endpoint = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey');
 
+        // a) Refine
+        final refinePrompt = 'You are an OCR text refinement AI. Clean and normalize the following text extracted from an image. Remove noise, fix spacing and formatting issues, and output only the corrected readable text — no extra explanation.\n\nText:\n$extractedText';
+        final refined = await _callGeminiForText(endpoint, refinePrompt);
+
+        // b) Structure
+        final structurePrompt = 'You are a data structuring AI. Analyze the following extracted text and convert it into well-structured JSON. Include only meaningful fields like name, address, ID number, date, card number, etc., based on what appears. Do not invent data. Return valid JSON only — no comments or explanations.\n\nText:\n$refined';
+        final structureText = await _callGeminiForText(endpoint, structurePrompt);
+        final structured = _extractJsonFromText(structureText) ?? <String, dynamic>{};
+
+        // c) Finalize
+        final finalizePrompt = 'You are a validation and cleanup AI. Review this JSON data for consistency and accuracy. Fix obvious OCR misreads (like wrong date formats or misplaced values), ensure all keys follow lower_snake_case, and reformat it neatly as valid JSON.\n\nJSON Input:\n${jsonEncode(structured)}';
+        final finalText = await _callGeminiForText(endpoint, finalizePrompt);
+        final finalJson = _extractJsonFromText(finalText) ?? structured;
+
+        return AIProcessingResult(
+          cleanedText: refined.trim(),
+          structuredJson: structured,
+          finalJson: finalJson,
+        );
+      } catch (_) {
+        // Fail soft: return pass-through
+        return AIProcessingResult(
+          cleanedText: extractedText,
+          structuredJson: const {},
+          finalJson: const {},
+        );
+      }
+    }
+
+    // 3) No proxy and no API key: pass-through
+    return AIProcessingResult(
+      cleanedText: extractedText,
+      structuredJson: const {},
+      finalJson: const {},
+    );
+  }
+
+  Future<String> _callGeminiForText(Uri endpoint, String prompt) async {
+    final body = jsonEncode({
+      'contents': [
+        {
+          'parts': [
+            {'text': prompt}
+          ]
+        }
+      ]
+    });
     final resp = await http.post(
-      uri,
-      headers: const {
-        'Content-Type': 'application/json',
-      },
+      endpoint,
+      headers: const {'Content-Type': 'application/json'},
       body: body,
     );
-
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw Exception('AI processing failed (${resp.statusCode}): ${resp.body}');
+      throw Exception('Gemini call failed: ${resp.statusCode} ${resp.body}');
     }
-
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
-    if (data['ok'] != true) {
-      throw Exception('AI processing error: ${data['error'] ?? 'unknown'}');
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    final text = (json['candidates'] as List?)?.isNotEmpty == true
+        ? (json['candidates'][0]?['content']?['parts']?[0]?['text'] as String?)
+        : null;
+    if (text == null || text.trim().isEmpty) {
+      throw Exception('Gemini returned empty response');
     }
+    return text.trim();
+  }
 
-    final cleanedText = (data['cleaned_text'] as String?) ?? '';
-    final structured = (data['structured_json'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    final finalJson = (data['final_json'] as Map?)?.cast<String, dynamic>() ?? structured;
-
-    return AIProcessingResult(
-      cleanedText: cleanedText,
-      structuredJson: structured,
-      finalJson: finalJson,
-    );
+  Map<String, dynamic>? _extractJsonFromText(String text) {
+    final start = text.indexOf('{');
+    final end = text.lastIndexOf('}');
+    if (start == -1 || end == -1 || end <= start) return null;
+    final jsonString = text.substring(start, end + 1);
+    try {
+      final parsed = jsonDecode(jsonString);
+      if (parsed is Map<String, dynamic>) return parsed;
+      if (parsed is Map) return Map<String, dynamic>.from(parsed);
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 }
