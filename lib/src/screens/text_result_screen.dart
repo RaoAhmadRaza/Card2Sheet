@@ -4,7 +4,8 @@ import 'package:card2sheet/src/services/ocr_service.dart';
 
 class TextResultScreen extends StatefulWidget {
   final String imagePath;
-  const TextResultScreen({super.key, required this.imagePath});
+  final String? extractedText;
+  const TextResultScreen({super.key, required this.imagePath, this.extractedText});
 
   @override
   State<TextResultScreen> createState() => _TextResultScreenState();
@@ -18,7 +19,14 @@ class _TextResultScreenState extends State<TextResultScreen> {
   @override
   void initState() {
     super.initState();
-    _runOcr();
+    if (widget.extractedText != null) {
+      // Text already provided, skip OCR
+      _text = widget.extractedText!.trim();
+      _loading = false;
+    } else {
+      // Run OCR
+      _runOcr();
+    }
   }
 
   Future<void> _runOcr() async {

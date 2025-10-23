@@ -4,7 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'manual_crop_screen.dart';
-import 'text_result_screen.dart';
+import 'processing_screen.dart';
 
 class CameraScanScreen extends StatefulWidget {
   const CameraScanScreen({super.key});
@@ -209,10 +209,10 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   void _useImage() {
     if (_capturedImage != null) {
       final path = _capturedImage!.path;
-      // Navigate to OCR result screen with the selected image
+      // Navigate to processing screen with the selected image
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => TextResultScreen(imagePath: path),
+          builder: (_) => ProcessingScreen(imagePath: path),
         ),
       );
     }
