@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
@@ -25,7 +24,6 @@ class _ProcessingScreenState extends State<ProcessingScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _exitFadeAnimation;
-  late Animation<double> _blurAnimation;
   
   int _currentStep = 0;
   bool _isCompleting = false;
@@ -39,7 +37,7 @@ class _ProcessingScreenState extends State<ProcessingScreen>
   void initState() {
     super.initState();
     _progressController = AnimationController(
-      duration: const Duration(milliseconds: 2800),
+      duration: const Duration(milliseconds: 3500),
       vsync: this,
     );
     _stepController = AnimationController(
@@ -87,12 +85,6 @@ class _ProcessingScreenState extends State<ProcessingScreen>
       CurvedAnimation(
         parent: _exitController,
         curve: Curves.easeInCubic,
-      ),
-    );
-    _blurAnimation = Tween<double>(begin: 0.0, end: 10.0).animate(
-      CurvedAnimation(
-        parent: _exitController,
-        curve: Curves.easeInOut,
       ),
     );
     
@@ -207,44 +199,16 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         builder: (context, child) {
           return Stack(
             children: [
-              // Main content with fade and blur
+              // Main content with fade
               AnimatedBuilder(
                 animation: _exitFadeAnimation,
                 builder: (context, child) {
                   return Opacity(
                     opacity: _exitFadeAnimation.value,
-                    child: AnimatedBuilder(
-                      animation: _blurAnimation,
-                      builder: (context, child) {
-                        return BackdropFilter(
-                          filter: ui.ImageFilter.blur(
-                            sigmaX: _blurAnimation.value,
-                            sigmaY: _blurAnimation.value,
-                          ),
-                          child: _buildMainContent(),
-                        );
-                      },
-                    ),
+                    child: _buildMainContent(),
                   );
                 },
               ),
-              
-              // Processing blur overlay with subtle animation
-              if (_currentStep >= 0 && !_isCompleting)
-                AnimatedBuilder(
-                  animation: _pulseAnimation,
-                  builder: (context, child) {
-                    return BackdropFilter(
-                      filter: ui.ImageFilter.blur(
-                        sigmaX: 2.5 + (_pulseAnimation.value * 0.5),
-                        sigmaY: 2.5 + (_pulseAnimation.value * 0.5),
-                      ),
-                      child: Container(
-                        color: Colors.white.withOpacity(0.05 + (_pulseAnimation.value * 0.05)),
-                      ),
-                    );
-                  },
-                ),
               
               // Completion overlay
               if (_isCompleting)
@@ -337,11 +301,35 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                       child: AnimatedBuilder(
                         animation: _progressAnimation,
                         builder: (context, child) {
-                          return LinearProgressIndicator(
-                            value: _progressAnimation.value,
-                            backgroundColor: Colors.black.withOpacity(0.1),
-                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.black),
-                            minHeight: 5,
+                          return Container(
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(2.5),
+                            ),
+                            child: Stack(
+                              children: [
+                                Container(
+                                  width: double.infinity,
+                                  height: 5,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(2.5),
+                                  ),
+                                ),
+                                FractionallySizedBox(
+                                  alignment: Alignment.centerLeft,
+                                  widthFactor: _progressAnimation.value,
+                                  child: Container(
+                                    height: 5,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black,
+                                      borderRadius: BorderRadius.circular(2.5),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
