@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
+import 'package:card2sheet/src/services/ai_processing_service.dart';
 import 'text_result_screen.dart';
 
 class ProcessingScreen extends StatefulWidget {
@@ -27,6 +28,7 @@ class _ProcessingScreenState extends State<ProcessingScreen>
   
   int _currentStep = 0;
   bool _isCompleting = false;
+  bool _progressComplete = false;
   List<ProcessingStep> _steps = [
     const ProcessingStep('Analyzing image...', false),
     const ProcessingStep('Extracting text...', false),
@@ -120,51 +122,50 @@ class _ProcessingScreenState extends State<ProcessingScreen>
       
       await Future.delayed(const Duration(milliseconds: 600));
       
-      // Step 2: Structuring data (simulate AI processing)
-      await Future.delayed(const Duration(milliseconds: 1200));
-      
+      // Step 2 & 3: Call backend to structure and finalize
+      setState(() {
+        _currentStep = 1; // now processing/structuring
+      });
+
+      final aiSvc = AIProcessingService();
+      final result = await aiSvc.processOcrText(extractedText);
+
+      // Mark structuring complete
       setState(() {
         _steps[1] = ProcessingStep('Structuring data with AI...', true);
-        _currentStep = 2;
+        _currentStep = 2; // finalizing
       });
-      
+
       // Light haptic for step completion
       HapticFeedback.selectionClick();
-      
-      await Future.delayed(const Duration(milliseconds: 600));
-      
+
       // Complete final step
       setState(() {
         _steps[2] = ProcessingStep('Complete!', true);
         _isCompleting = true;
+        _progressComplete = true;
       });
-      
+
       // Haptic feedback at 100%
       HapticFeedback.lightImpact();
-      
+
       // Wait for completion pause
       await Future.delayed(const Duration(milliseconds: 400));
-      
-      // Start exit animation with blur
+
+      // Transition to results
       if (mounted) {
         _exitController.forward();
-        
-        // Wait for exit animation to complete
         await Future.delayed(const Duration(milliseconds: 500));
-        
-        // Navigate to results
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) => TextResultScreen(
               imagePath: widget.imagePath,
-              extractedText: extractedText,
+              extractedText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
+              structuredData: result.finalJson,
             ),
             transitionDuration: const Duration(milliseconds: 400),
             transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(
-                opacity: animation,
-                child: child,
-              );
+              return FadeTransition(opacity: animation, child: child);
             },
           ),
         );
@@ -341,13 +342,47 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                   AnimatedBuilder(
                     animation: _progressAnimation,
                     builder: (context, child) {
+                      final progress = _progressAnimation.value;
+                      final displayProgress = _progressComplete ? 100 : (progress * 100).round();
                       return Text(
-                        '${(_progressAnimation.value * 100).round()}%',
+                        '$displayProgress%',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
                           color: Colors.black.withOpacity(0.5),
                           letterSpacing: 0.1,
+                        ),
+                      );
+                    },
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Friendly microcopy
+                  AnimatedBuilder(
+                    animation: _progressAnimation,
+                    builder: (context, child) {
+                      String microcopy = "Preparing your document...";
+                      if (_progressAnimation.value > 0.3) {
+                        microcopy = "Hang tight — your document is being polished by AI 🤖";
+                      }
+                      if (_progressComplete) {
+                        microcopy = "All done! ✨";
+                      }
+                      
+                      return AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 500),
+                        child: Text(
+                          microcopy,
+                          key: ValueKey(microcopy),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w400,
+                            color: Colors.black.withOpacity(0.4),
+                            letterSpacing: 0.1,
+                            height: 1.3,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
                       );
                     },
@@ -393,16 +428,27 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                                 children: [
                                   // Step icon
                                   AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 400),
+                                    duration: const Duration(milliseconds: 600),
+                                    switchInCurve: Curves.easeOutCubic,
+                                    switchOutCurve: Curves.easeInCubic,
+                                    transitionBuilder: (child, animation) {
+                                      return FadeTransition(
+                                        opacity: animation,
+                                        child: ScaleTransition(
+                                          scale: animation,
+                                          child: child,
+                                        ),
+                                      );
+                                    },
                                     child: Container(
                                       key: ValueKey('step_${index}_${isCompleted}_$isActive'),
                                       height: 32,
                                       width: 32,
                                       decoration: BoxDecoration(
-                                        color: isCompleted ? Colors.black : Colors.transparent,
+                                        color: isCompleted ? Colors.black.withOpacity(0.6) : Colors.transparent,
                                         border: Border.all(
                                           color: isCompleted 
-                                              ? Colors.black 
+                                              ? Colors.black.withOpacity(0.6)
                                               : isActive 
                                                   ? Colors.black.withOpacity(0.4)
                                                   : Colors.black.withOpacity(0.2),
@@ -411,11 +457,21 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                                         shape: BoxShape.circle,
                                       ),
                                       child: isCompleted
-                                          ? Icon(
-                                              Icons.check_rounded,
-                                              color: Colors.white,
-                                              size: 16,
-                                              weight: 600,
+                                          ? TweenAnimationBuilder<double>(
+                                              duration: const Duration(milliseconds: 400),
+                                              tween: Tween(begin: 0.0, end: 1.0),
+                                              curve: Curves.easeOutBack,
+                                              builder: (context, value, child) {
+                                                return Transform.scale(
+                                                  scale: value,
+                                                  child: Icon(
+                                                    Icons.check_rounded,
+                                                    color: Colors.white,
+                                                    size: 16,
+                                                    weight: 600,
+                                                  ),
+                                                );
+                                              },
                                             )
                                           : isActive
                                               ? AnimatedBuilder(
@@ -439,15 +495,19 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                                   // Step text
                                   Expanded(
                                     child: AnimatedDefaultTextStyle(
-                                      duration: const Duration(milliseconds: 300),
+                                      duration: const Duration(milliseconds: 400),
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w400,
-                                        color: isCompleted || isActive 
-                                            ? Colors.black.withOpacity(0.8)
-                                            : Colors.black.withOpacity(0.4),
+                                        color: isCompleted 
+                                            ? Colors.black.withOpacity(0.4) // Dimmed completed steps
+                                            : isActive 
+                                                ? Colors.black.withOpacity(0.8) // Highlighted active step
+                                                : Colors.black.withOpacity(0.3), // Pending steps
                                         letterSpacing: -0.2,
                                         height: 1.3,
+                                        decoration: isCompleted ? TextDecoration.lineThrough : null,
+                                        decorationColor: Colors.black.withOpacity(0.2),
                                       ),
                                       child: Text(step.title),
                                     ),

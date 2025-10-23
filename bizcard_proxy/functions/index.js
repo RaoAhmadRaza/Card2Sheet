@@ -603,6 +603,94 @@ app.post('/format-card', async (req, res) => {
   }
 });
 
+// Combined OCR processing pipeline: refine -> structure -> finalize
+app.post('/process-ocr', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const validationError = validateRequest({ raw_text: body.raw_text });
+    if (validationError) {
+      logEvent('warn', 'validation_error', { error: validationError, ip: req.ip });
+      return res.status(400).json({ ok: false, error: validationError });
+    }
+
+    const raw_text = sanitizeRawText(body.raw_text);
+    const session_id = typeof body.session_id === 'string' ? body.session_id : undefined;
+    const sessionId = session_id || (req.user && req.user.uid) || req.ip || 'anonymous';
+
+    const allowed = await checkRateLimit(sessionId);
+    if (!allowed) return res.status(429).json({ ok: false, error: 'rate_limited' });
+
+    const key = await getGeminiKey();
+    if (!key) {
+      console.error('Missing GEMINI API key (Secret Manager or GEMINI_API_KEY env).');
+      return res.status(500).json({ ok: false, error: 'server_misconfigured' });
+    }
+
+    // Reserve quota approximately for three prompts
+    const estTokens = estimateTokensFromText(raw_text) * 3;
+    const quotaOk = await checkAndReserveQuota(sessionId, estTokens, 1);
+    if (!quotaOk) return res.status(402).json({ ok: false, error: 'quota_exceeded' });
+
+    const baseEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+
+    // 1) Refinement prompt
+    const refinePrompt = `You are an OCR text refinement AI. Clean and normalize the following text extracted from an image. Remove noise, fix spacing and formatting issues, and output only the corrected readable text — no extra explanation.\n\nText:\n${raw_text}`;
+    const refineReq = { contents: [{ parts: [{ text: refinePrompt }] }] };
+    const refineResp = await fetchWithRetry(baseEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(refineReq),
+    });
+    const refineJson = await refineResp.json();
+    const cleaned_text = refineJson?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    if (!cleaned_text) {
+      logEvent('error', 'refine_empty', { sessionId });
+      return res.status(500).json({ ok: false, error: 'refine_failed' });
+    }
+
+    // 2) Structuring prompt -> expect JSON
+    const structurePrompt = `You are a data structuring AI. Analyze the following extracted text and convert it into well-structured JSON. Include only meaningful fields like name, address, ID number, date, card number, etc., based on what appears. Do not invent data. Return valid JSON only — no comments or explanations.\n\nText:\n${cleaned_text}`;
+    const structureReq = { contents: [{ parts: [{ text: structurePrompt }] }] };
+    const structureResp = await fetchWithRetry(baseEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(structureReq),
+    });
+    const structureJson = await structureResp.json();
+    const structuredText = structureJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    let structured = extractJsonFromText(structuredText);
+    if (!structured) {
+      logEvent('error', 'structure_parse_error', { sessionId, structuredText: structuredText?.slice(0, 200) });
+      return res.status(500).json({ ok: false, error: 'structure_failed' });
+    }
+
+    // 3) Finalize/validation prompt
+    const finalizePrompt = `You are a validation and cleanup AI. Review this JSON data for consistency and accuracy. Fix obvious OCR misreads (like wrong date formats or misplaced values), ensure all keys follow lower_snake_case, and reformat it neatly as valid JSON.\n\nJSON Input:\n${JSON.stringify(structured)}`;
+    const finalizeReq = { contents: [{ parts: [{ text: finalizePrompt }] }] };
+    const finalizeResp = await fetchWithRetry(baseEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(finalizeReq),
+    });
+    const finalizeJson = await finalizeResp.json();
+    const finalText = finalizeJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    let finalData = extractJsonFromText(finalText);
+    if (!finalData) {
+      // As a fallback, return the structured JSON if finalization parsing fails
+      finalData = structured;
+    }
+
+    // Adjust quota based on approximate actual tokens (combine all texts)
+    const actualTokens = estimateTokensFromText([cleaned_text, structuredText, finalText].join(' '));
+    await adjustQuotaAfterCall(sessionId, actualTokens - estTokens);
+
+    return res.json({ ok: true, cleaned_text, structured_json: structured, final_json: finalData });
+  } catch (e) {
+    logEvent('error', 'process_ocr_exception', { error: e.message || e });
+    return res.status(500).json({ ok: false, error: 'internal_error', message: e.message });
+  }
+});
+
 // Quota status endpoint
 app.get('/quota-status/:sessionId', async (req, res) => {
   try {
