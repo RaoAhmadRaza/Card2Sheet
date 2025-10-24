@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
 import 'package:card2sheet/src/services/ai_processing_service.dart';
+import 'structured_result_screen.dart';
 import 'text_result_screen.dart';
 
 class ProcessingScreen extends StatefulWidget {
@@ -158,19 +159,37 @@ class _ProcessingScreenState extends State<ProcessingScreen>
       if (mounted) {
         _exitController.forward();
         await Future.delayed(const Duration(milliseconds: 500));
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => TextResultScreen(
-              imagePath: widget.imagePath,
-              extractedText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
-              structuredData: result.finalJson,
+        
+        // Navigate to structured result screen if we have structured data
+        if (result.finalJson.isNotEmpty) {
+          Navigator.of(context).pushReplacement(
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) => StructuredResultScreen(
+                structuredData: result.finalJson,
+                originalText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
+              ),
+              transitionDuration: const Duration(milliseconds: 400),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                return FadeTransition(opacity: animation, child: child);
+              },
             ),
-            transitionDuration: const Duration(milliseconds: 400),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-          ),
-        );
+          );
+        } else {
+          // Fallback to text result screen if no structured data
+          Navigator.of(context).pushReplacement(
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) => TextResultScreen(
+                imagePath: widget.imagePath,
+                extractedText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
+                structuredData: result.finalJson,
+              ),
+              transitionDuration: const Duration(milliseconds: 400),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+            ),
+          );
+        }
       }
     } catch (e) {
       // Handle error
