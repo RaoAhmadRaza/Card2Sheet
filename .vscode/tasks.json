@@ -91,6 +91,20 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Android clean caches",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"set -e\nexport JAVA_HOME=\"/Applications/Android Studio.app/Contents/jbr/Contents/Home\"\nflutter clean\nrm -rf android/.gradle\nrm -rf build\n# Remove Kotlin plugin caches under plugin builds that are failing\nrm -rf android/app/build\n# Optionally prune specific plugin build caches that showed errors\nrm -rf build/file_picker build/share_plus\nflutter pub get"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
 		}
 	]
 }

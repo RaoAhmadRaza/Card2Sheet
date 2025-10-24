@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
 import 'package:card2sheet/src/services/ai_processing_service.dart';
 import 'structured_result_screen.dart';
-import 'text_result_screen.dart';
 
 class ProcessingScreen extends StatefulWidget {
   final String imagePath;
@@ -160,36 +159,27 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         _exitController.forward();
         await Future.delayed(const Duration(milliseconds: 500));
         
-        // Navigate to structured result screen if we have structured data
-        if (result.finalJson.isNotEmpty) {
-          Navigator.of(context).pushReplacement(
-            PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) => StructuredResultScreen(
-                structuredData: result.finalJson,
-                originalText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
-              ),
-              transitionDuration: const Duration(milliseconds: 400),
-              transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                return FadeTransition(opacity: animation, child: child);
-              },
+        // Always navigate to the StructuredResultScreen. If AI output is empty
+        // (e.g., no API key/proxy configured), derive a minimal structured map
+        // so the new screen still appears instead of the legacy text screen.
+        final structured = result.finalJson.isNotEmpty
+            ? result.finalJson
+            : _deriveFallbackStructuredData(
+                result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
+              );
+
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) => StructuredResultScreen(
+              structuredData: structured,
+              originalText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
             ),
-          );
-        } else {
-          // Fallback to text result screen if no structured data
-          Navigator.of(context).pushReplacement(
-            PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) => TextResultScreen(
-                imagePath: widget.imagePath,
-                extractedText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
-                structuredData: result.finalJson,
-              ),
-              transitionDuration: const Duration(milliseconds: 400),
-              transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                return FadeTransition(opacity: animation, child: child);
-              },
-            ),
-          );
-        }
+            transitionDuration: const Duration(milliseconds: 400),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+          ),
+        );
       }
     } catch (e) {
       // Handle error
@@ -200,6 +190,58 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         Navigator.of(context).pop();
       }
     }
+  }
+
+  // Derive a minimal structured map from raw text when AI output is unavailable.
+  // This keeps UX consistent by always showing the StructuredResultScreen.
+  Map<String, dynamic> _deriveFallbackStructuredData(String text) {
+    final map = <String, dynamic>{};
+    final lines = text.split(RegExp(r"[\r\n]+")).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+
+    // Email
+    final emailMatch = RegExp(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}").firstMatch(text);
+    if (emailMatch != null) map['email'] = emailMatch.group(0);
+
+    // Phone (loose)
+    final phoneMatch = RegExp(r"(?:(?:\+|00)\d{1,3}[\s-]?)?(?:\(?\d{2,4}\)?[\s-]?)?\d[\d\s-]{6,}\d").firstMatch(text);
+    if (phoneMatch != null) map['phone'] = phoneMatch.group(0);
+
+    // Website
+    final urlMatch = RegExp(r"(?:(?:https?:\/\/)?(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:\/[\w\-._~:\/?#\[\]@!$&'()*+,;=%]*)?").firstMatch(text);
+    if (urlMatch != null) {
+      var v = urlMatch.group(0) ?? '';
+      v = v.replaceAll(RegExp(r"\s"), '');
+      map['website'] = v;
+    }
+
+    // Name heuristic: first uppercase-dominant line without digits/@ and not looking like a URL
+    String? candidateName;
+    for (final line in lines) {
+      final lower = line.toLowerCase();
+      if (RegExp(r"[@\d]").hasMatch(line)) continue;
+      if (lower.contains('www') || lower.contains('http')) continue;
+      // Prefer lines with 2-4 words capitalized
+      final words = line.split(RegExp(r"\s+")).where((w) => w.isNotEmpty).toList();
+      if (words.length >= 1 && words.length <= 5) {
+        final capped = words.where((w) => w.isNotEmpty && w[0].toUpperCase() == w[0]).length;
+        if (capped >= (words.length / 2)) {
+          candidateName = line;
+          break;
+        }
+      }
+    }
+    if (candidateName != null) map['name'] = candidateName;
+
+    // Title: any line with role keywords
+    final titleLine = lines.firstWhere(
+      (l) => RegExp(r"manager|director|engineer|designer|developer|lead|sales|marketing|officer|consultant",
+              caseSensitive: false)
+          .hasMatch(l),
+      orElse: () => '',
+    );
+    if (titleLine.isNotEmpty) map['title'] = titleLine;
+
+    return map;
   }
 
   Future<void> _advanceProgressTo(double target) async {

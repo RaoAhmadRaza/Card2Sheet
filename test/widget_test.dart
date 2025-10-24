@@ -8,7 +8,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:card2sheet/main.dart';
+// Use the real app widget from src/app.dart (main.dart doesn't export it)
+import 'package:card2sheet/src/app.dart';
 
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {

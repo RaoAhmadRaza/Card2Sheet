@@ -347,27 +347,14 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
     sheetName = book.getDefaultSheet() ?? sheetName;
     final sheet = book[sheetName];
 
-    // Read existing headers from first row (rowIndex 0)
-    final currentHeaders = <String>[];
-    for (var c = 0; c < 100; c++) {
-      final cell = sheet.cell(xlsx.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: 0));
-      final val = cell.value;
-      if (val == null) {
-        // stop when trailing nulls start and we already have some headers
-        if (currentHeaders.isNotEmpty) break;
-        else continue;
-      }
-      final String text = val.toString();
-      if (text.trim().isEmpty && currentHeaders.isNotEmpty) break;
-      if (text.trim().isNotEmpty) currentHeaders.add(text);
-    }
+    // Try to read existing headers; be resilient to cell wrapper types and
+    // possible blank first rows created by some viewers.
+    final currentHeaders = _readExistingExcelHeaders(sheet);
 
     if (currentHeaders.isEmpty) {
-      // Write our headers
+      // No headers detected anywhere: write our headers once.
       final headers = _orderedHeaders().map(_getDisplayLabel).toList();
-      sheet.appendRow(headers
-          .map<xlsx.CellValue?>((h) => xlsx.TextCellValue(h))
-          .toList());
+      sheet.appendRow(headers.map<xlsx.CellValue?>((h) => xlsx.TextCellValue(h)).toList());
       currentHeaders.addAll(headers);
     }
 
@@ -385,6 +372,47 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
     final bytes = book.encode();
     if (bytes == null) throw Exception('Failed to encode Excel file');
     await file.writeAsBytes(bytes, flush: true);
+  }
+
+  // Read headers from the sheet robustly. We look at the first few rows and
+  // return the first row that contains at least two non-empty cells or matches
+  // our expected display labels. Cell values are sanitized to plain strings.
+  List<String> _readExistingExcelHeaders(xlsx.Sheet sheet) {
+    final expected = _orderedHeaders().map((e) => _getDisplayLabel(e).toLowerCase()).toList();
+
+    List<String> readRow(int rowIndex) {
+      final cells = <String>[];
+      for (var c = 0; c < 100; c++) {
+        final cell = sheet.cell(xlsx.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: rowIndex));
+        final text = _sanitizeCellString(cell.value);
+        if (text.isEmpty) {
+          if (cells.isNotEmpty) break; // stop at first blank after content
+          continue;
+        }
+        cells.add(text);
+      }
+      return cells;
+    }
+
+    // Check first 5 rows for a plausible header row
+    for (var r = 0; r < 5; r++) {
+      final row = readRow(r);
+      if (row.isEmpty) continue;
+      final lower = row.map((e) => e.toLowerCase()).toList();
+      final matchesExpected = lower.where((e) => expected.contains(e)).length >= 2;
+      if (matchesExpected || row.length >= 2) {
+        return row;
+      }
+    }
+    return <String>[];
+  }
+
+  // Some excel cells stringify as 'TextCellValue(Name)'. Strip that wrapper.
+  String _sanitizeCellString(Object? val) {
+    if (val == null) return '';
+    final s = val.toString().trim();
+    final m = RegExp(r'^[A-Za-z]+CellValue\((.*)\)$').firstMatch(s);
+    return m != null ? m.group(1)!.trim() : s;
   }
 
   void _toggleEditMode() {

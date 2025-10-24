@@ -1,3 +1,5 @@
 {
-    "chat.agent.maxRequests": 50
+    "chat.agent.maxRequests": 50,
+    // Disable Flutter Fast Start to ensure a full fresh build is installed on device at run
+    "dart.flutterFastStart": false
 }

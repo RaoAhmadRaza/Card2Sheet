@@ -82,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFF8FAFC), Color(0xFFF1F5F9)],
+            colors: [Color(0xFFF9F9FA), Color(0xFFF2F2F7)],
           ),
         ),
         child: SafeArea(
@@ -116,12 +116,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: _isOpenSheetHovered 
-                            ? const Color(0xFF007AFF).withOpacity(0.1)
+                            ? const Color(0xFF2C2C2E).withValues(alpha: 0.1)
                             : Colors.transparent,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: _isOpenSheetHovered 
-                              ? const Color(0xFF007AFF).withOpacity(0.3)
+                              ? const Color(0xFF2C2C2E).withValues(alpha: 0.2)
                               : Colors.transparent,
                             width: 1,
                           ),
@@ -138,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Icon(
                                   Icons.table_chart_outlined,
                                   size: 18,
-                                  color: const Color(0xFF007AFF),
+                                  color: const Color(0xFF1D1D1F),
                                 ),
                               ),
                               const SizedBox(width: 6),
@@ -147,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 style: GoogleFonts.inter(
                                   fontSize: _isOpenSheetHovered ? 15.5 : 16,
                                   fontWeight: FontWeight.w500,
-                                  color: const Color(0xFF007AFF),
+                                  color: const Color(0xFF1D1D1F),
                                 ),
                                 child: const Text('Open Sheet'),
                               ),
@@ -168,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
+                        color: Colors.black.withValues(alpha: 0.06),
                         blurRadius: 12,
                         offset: const Offset(0, 4),
                       ),
@@ -180,10 +180,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.8),
+                          color: Colors.white.withValues(alpha: 0.8),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.3),
+                            color: Colors.white.withValues(alpha: 0.3),
                             width: 1,
                           ),
                         ),
@@ -198,11 +198,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             hintText: 'Search cards...',
                             hintStyle: GoogleFonts.inter(
                               fontSize: 16,
-                              color: Colors.grey.shade500,
+                              color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
                             ),
                             prefixIcon: Icon(
                               Icons.search_outlined,
-                              color: Colors.grey.shade500,
+                              color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
                               size: 20,
                             ),
                             suffixIcon: _searchQuery.isNotEmpty
@@ -215,7 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     },
                                     child: Icon(
                                       Icons.clear,
-                                      color: Colors.grey.shade500,
+                                      color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
                                       size: 20,
                                     ),
                                   )
@@ -249,81 +249,42 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       
       // Glassmorphic Floating Action Button
-      floatingActionButton: GestureDetector(
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) => setState(() => _isPressed = false),
-        onTapCancel: () => setState(() => _isPressed = false),
-        onTap: _openCameraScan,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeInOut,
-          width: _isPressed ? 155 : 160,
-          height: _isPressed ? 53 : 56,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.4),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: _isPressed ? 8 : 15,
-                offset: Offset(0, _isPressed ? 3 : 6),
-              ),
-              BoxShadow(
-                color: Colors.white.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(30),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF007AFF).withOpacity(0.3),
-                      const Color(0xFF5856D6).withOpacity(0.2),
-                    ],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
+      floatingActionButton: Listener(
+        onPointerDown: (_) => setState(() => _isPressed = true),
+        onPointerUp: (_) => setState(() => _isPressed = false),
+        onPointerCancel: (_) => setState(() => _isPressed = false),
+        child: AnimatedScale(
+          scale: _isPressed ? 0.97 : 1.0,
+          duration: const Duration(milliseconds: 120),
+          child: SizedBox(
+            height: 56,
+            width: 160,
+            child: ElevatedButton(
+              onPressed: _openCameraScan,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1D1D1F),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
                 ),
-                child: Center(
-                  child: AnimatedScale(
-                    scale: _isPressed ? 0.95 : 1.0,
-                    duration: const Duration(milliseconds: 150),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        AnimatedRotation(
-                          turns: _isPressed ? 0.1 : 0.0,
-                          duration: const Duration(milliseconds: 150),
-                          child: Icon(
-                            Icons.camera_alt_outlined,
-                            color: Colors.black.withOpacity(0.9),
-                            size: _isPressed ? 18 : 20,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 150),
-                          style: GoogleFonts.inter(
-                            fontSize: _isPressed ? 15 : 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black.withOpacity(0.9),
-                          ),
-                          child: const Text('Scan Card'),
-                        ),
-                      ],
+                overlayColor: const Color(0xFF2C2C2E),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.camera_alt_outlined, size: 20, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    'Scan Card',
+                    style: TextStyle(
+                      fontFamily: '.SF Pro Text',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -481,16 +442,11 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: Colors.white,
-            blurRadius: 6,
-            offset: const Offset(0, -2),
+            color: Color(0x0D000000), // ~5% black
+            blurRadius: 30,
+            offset: Offset(0, 8),
           ),
         ],
       ),
@@ -502,8 +458,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ? () => Navigator.of(context).pushNamed(AppRoutes.result)
             : null,
           borderRadius: BorderRadius.circular(20),
-          splashColor: const Color(0xFF007AFF).withOpacity(0.1),
-          highlightColor: const Color(0xFF007AFF).withOpacity(0.05),
+          splashColor: const Color(0xFF2C2C2E).withValues(alpha: 0.08),
+          highlightColor: const Color(0xFF2C2C2E).withValues(alpha: 0.05),
           child: Padding(
             padding: const EdgeInsets.all(4.0),
             child: Row(
@@ -517,7 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: _getAvatarColor(avatar).withOpacity(0.3),
+                        color: Colors.black.withValues(alpha: 0.12),
                         blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
@@ -556,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: GoogleFonts.inter(
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
-                      color: const Color(0xFF007AFF),
+                      color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -565,25 +521,29 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
-                      color: Colors.grey.shade600,
+                      color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
                     ),
                   ),
                 ],
               ),
             ),
             
-            // Enhanced Status Badge with Animation
+            // Enhanced Status Badge with monochrome scheme
             if (status.isNotEmpty)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   gradient: _getStatusGradient(status),
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
+                  border: Border.all(
+                    color: const Color(0xFF2C2C2E).withValues(alpha: 0.08),
+                    width: 1,
+                  ),
+                  boxShadow: const [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
+                      color: Color(0x0D000000), // ~5% black
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
                     ),
                   ],
                 ),
@@ -592,7 +552,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                    color: const Color(0xFF1D1D1F),
                     letterSpacing: 0.3,
                   ),
                 ),
@@ -646,76 +606,22 @@ class _HomeScreenState extends State<HomeScreen> {
     return name.isNotEmpty ? name[0].toUpperCase() : 'U';
   }
 
-  Color _getAvatarColor(String avatar) {
-    final colors = [
-      const Color(0xFF007AFF),
-      const Color(0xFF5856D6),
-      const Color(0xFFAF52DE),
-      const Color(0xFFFF2D92),
-      const Color(0xFFFF3B30),
-      const Color(0xFFFF9500),
-    ];
-    return colors[avatar.hashCode % colors.length];
-  }
-
   LinearGradient _getAvatarGradient(String avatar) {
-    final gradients = [
-      const LinearGradient(
-        colors: [Color(0xFF007AFF), Color(0xFF5A9EFF)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFF6A5AE0), Color(0xFF8B78F6)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFAF52DE), Color(0xFFD78EFF)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFFF2D92), Color(0xFFFF6BB5)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFFF3B30), Color(0xFFFF7066)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFFF9500), Color(0xFFFFB84D)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-    ];
-    return gradients[avatar.hashCode % gradients.length];
+    // Single monochrome gradient derived from scheme
+    return const LinearGradient(
+      colors: [Color(0xFF1D1D1F), Color(0xFF2C2C2E)],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
   }
 
   LinearGradient _getStatusGradient(String status) {
-    switch (status.toLowerCase()) {
-      case 'new':
-      case 'latest':
-        return const LinearGradient(
-          colors: [Color(0xFF34C759), Color(0xFF30B651)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        );
-      case 'recent':
-        return const LinearGradient(
-          colors: [Color(0xFFFF9500), Color(0xFFE6850E)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        );
-      default:
-        return LinearGradient(
-          colors: [Colors.grey.shade400, Colors.grey.shade500],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        );
-    }
+    // Monochrome neutral gradient to match app scheme
+    return const LinearGradient(
+      colors: [Color(0xFFF9F9FA), Color(0xFFF2F2F7)],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
   }
 
 

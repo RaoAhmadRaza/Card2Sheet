@@ -12,11 +12,11 @@ class OnboardingScreen extends StatelessWidget {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.bottomLeft,
-            end: Alignment.topRight,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [
-              Color(0xFFB0B0B0), // Gray bottom left
-              Colors.white, // White top right
+              Color(0xFFF9F9FA),
+              Color(0xFFF2F2F7),
             ],
           ),
         ),
@@ -46,7 +46,7 @@ class OnboardingScreen extends StatelessWidget {
                   style: GoogleFonts.poppins(
                     fontSize: 18,
                     fontWeight: FontWeight.w400,
-                    color: const Color(0xFF86868B),
+                    color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
                     letterSpacing: -0.3,
                     wordSpacing: -0.8,
                   ),
@@ -66,7 +66,7 @@ class OnboardingScreen extends StatelessWidget {
                       return const Icon(
                         Icons.credit_card,
                         size: 120,
-                        color: Color(0xFF86868B),
+                        color: Color(0xFF1D1D1F),
                       );
                     },
                   ),
@@ -96,51 +96,40 @@ class OnboardingScreen extends StatelessWidget {
 
                 const Spacer(flex: 2),
 
-                // Get Started Button
-                Container(
+                // Get Started Button (primary)
+                SizedBox(
                   width: double.infinity,
                   height: 50,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: const LinearGradient(
-                      colors: [
-                        Color.fromARGB(255, 220, 222, 224),
-                        Color.fromARGB(255, 255, 255, 255),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x0D000000), // ~5% black
+                          blurRadius: 30,
+                          offset: Offset(0, 8),
+                        ),
                       ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color.fromARGB(
-                          255,
-                          81,
-                          83,
-                          84,
-                        ).withValues(alpha: 0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(context).pushReplacementNamed(AppRoutes.csvUpload),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1D1D1F),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        overlayColor: const Color(0xFF2C2C2E),
                       ),
-                    ],
-                  ),
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(
-                      context,
-                    ).pushReplacementNamed(AppRoutes.csvUpload),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Text(
-                      'Get Started',
-                      style: GoogleFonts.poppins(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black,
-                        letterSpacing: -0.2,
+                      child: Text(
+                        'Get Started',
+                        style: GoogleFonts.poppins(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                          letterSpacing: -0.2,
+                        ),
                       ),
                     ),
                   ),
@@ -170,18 +159,20 @@ class _FeatureItem extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: const Color.fromARGB(
-              255,
-              255,
-              255,
-              255,
-            ).withValues(alpha: 10.1),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(8),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0D000000), // ~5% black
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
           ),
           child: Icon(
             icon,
             size: 22,
-            color: const Color.fromARGB(255, 0, 0, 0),
+            color: Color(0xFF1D1D1F),
           ),
         ),
         const SizedBox(width: 16),
@@ -191,7 +182,7 @@ class _FeatureItem extends StatelessWidget {
             style: GoogleFonts.poppins(
               fontSize: 18,
               fontWeight: FontWeight.w400,
-              color: const Color(0xFF1D1D1F),
+              color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
               letterSpacing: -0.3,
               wordSpacing: -0.8,
             ),

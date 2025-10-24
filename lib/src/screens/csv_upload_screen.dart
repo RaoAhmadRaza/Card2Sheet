@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../core/routes.dart';
 import '../../core/preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CsvUploadScreen extends StatefulWidget {
   const CsvUploadScreen({super.key});
@@ -17,6 +18,19 @@ class CsvUploadScreen extends StatefulWidget {
 
 class _CsvUploadScreenState extends State<CsvUploadScreen> {
   bool _isUploading = false;
+
+  Future<void> _setSpreadsheetSelection({
+    required String path,
+    required String type, // 'csv' | 'xlsx'
+    String sheet = 'Sheet1',
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('spreadsheet_path', path);
+      await prefs.setString('spreadsheet_type', type);
+      await prefs.setString('spreadsheet_sheet', sheet);
+    } catch (_) {}
+  }
 
   Future<void> _pickFile(BuildContext context) async {
     setState(() {
@@ -39,6 +53,8 @@ class _CsvUploadScreenState extends State<CsvUploadScreen> {
         await pickedFile.copy(target.path);
         // Persist last sheet path for quick open
         await Preferences.setLastSheetPath(target.path);
+        // Also persist selection for save flow to bypass popup
+        await _setSpreadsheetSelection(path: target.path, type: ext, sheet: 'Sheet1');
 
         // Navigate to home
         if (context.mounted) {
@@ -91,6 +107,21 @@ class _CsvUploadScreenState extends State<CsvUploadScreen> {
 
     if (choice != null) {
       await Preferences.setDefaultFormat(choice);
+
+      // Persist a default spreadsheet selection in app documents dir
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final isCsv = choice == DefaultExportFormat.csv;
+        final defaultPath = '${docsDir.path}/Card2Sheet_Default.${isCsv ? 'csv' : 'xlsx'}';
+        await _setSpreadsheetSelection(
+          path: defaultPath,
+          type: isCsv ? 'csv' : 'xlsx',
+          sheet: 'Sheet1',
+        );
+        // Store last path as well for consistency
+        await Preferences.setLastSheetPath(defaultPath);
+      } catch (_) {}
+
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(AppRoutes.home);
     }
@@ -99,14 +130,9 @@ class _CsvUploadScreenState extends State<CsvUploadScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(
-        255,
-        255,
-        255,
-        255,
-      ), // iOS light gray background
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Color(0xFFF9F9FA),
         elevation: 0,
         title: Text(
           'Template Setup',
@@ -118,149 +144,144 @@ class _CsvUploadScreenState extends State<CsvUploadScreen> {
         ),
         centerTitle: true,
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Hero Card
-              
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Lottie Animation in Card
-                    Lottie.network(
-                      'https://lottie.host/c77d7165-6254-445c-9119-fd12acefe1d5/JBBG3fA3mQ.json',
-                      height: 250,
-                      width: 250,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(
-                          Icons.file_upload_outlined,
-                          size: 40,
-                          color: Color(0xFF007AFF),
-                        );
-                      },
-                    ),
-
-                    Text(
-                      'Upload Your Template',
-                      style: GoogleFonts.poppins(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1D1D1F),
-                        letterSpacing: -0.3,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF9F9FA), Color(0xFFF2F2F7)],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Lottie.network(
+                        'https://lottie.host/c77d7165-6254-445c-9119-fd12acefe1d5/JBBG3fA3mQ.json',
+                        height: 250,
+                        width: 250,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.file_upload_outlined,
+                            size: 40,
+                            color: Color(0xFF1D1D1F),
+                          );
+                        },
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    Text(
-                      'Customize how your scanned business cards are organized by uploading a template file(.csv or .xlsx).',
-                      style: GoogleFonts.poppins(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w400,
-                        color: const Color(0xFF86868B),
-                        height: 1.3,
+                      Text(
+                        'Upload Your Template',
+                        style: GoogleFonts.poppins(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1D1D1F),
+                          letterSpacing: -0.3,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                      Text(
+                        'Customize how your scanned business cards are organized by uploading a template file(.csv or .xlsx).',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w400,
+                          color: Color(0xFF1D1D1F).withValues(alpha: 0.6),
+                          height: 1.3,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-
-              // Upload Button
-              Container(
-                width: double.infinity,
-                height: 50,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color.fromARGB(
-                        255,
-                        15,
-                        15,
-                        16,
-                      ).withValues(alpha: 0.2),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x0D000000),
+                          blurRadius: 30,
+                          offset: Offset(0, 8),
+                        ),
+                      ],
                     ),
-                  ],
+                    child: ElevatedButton(
+                      onPressed: _isUploading ? null : () => _pickFile(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Color(0xFF1D1D1F),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        disabledBackgroundColor: Color(0xFF1D1D1F),
+                        disabledForegroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        overlayColor: Color(0xFF2C2C2E),
+                      ),
+                      child: _isUploading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.cloud_upload_outlined,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Choose Template File',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
                 ),
-                child: ElevatedButton(
-                    onPressed: _isUploading ? () {} : () => _pickFile(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      disabledBackgroundColor: Colors.white,
-                      disabledForegroundColor: Colors.white,
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: TextButton(
+                    onPressed: _onSkipPressed,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Color(0xFF1D1D1F),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: _isUploading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Color.fromARGB(255, 0, 0, 0),
-                              strokeWidth: 2.5,
-                            ),
-                          )
-                        : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.cloud_upload_outlined,
-                                color: Color(0xFF007AFF),
-                                size: 20,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Choose Template File',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                ),
-
-              const SizedBox(height: 16),
-
-              // Skip Button
-              Container(
-                width: double.infinity,
-                height: 50,
-                child: TextButton(
-                  onPressed: _onSkipPressed,
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF007AFF),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: Text(
-                    'Skip - Use Default Template',
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.2,
+                    child: Text(
+                      'Skip - Use Default Template',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.2,
+                      ),
                     ),
                   ),
                 ),
-              ),
-
-              const SizedBox(height: 150),
-            ],
+                const SizedBox(height: 150),
+              ],
+            ),
           ),
         ),
       ),
