@@ -9,6 +9,7 @@ import 'package:excel/excel.dart' as xlsx;
 // import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'success_screen.dart';
 
 class StructuredResultScreen extends StatefulWidget {
   final Map<String, dynamic> structuredData;
@@ -233,11 +234,14 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
       } else {
         await _appendToExcel(file, sheetName: 'Sheet1');
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Row appended to spreadsheet'),
-          backgroundColor: Colors.green,
+      if (!mounted) return;
+      // Navigate to success screen after successful append
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SuccessScreen(
+            filePath: path,
+            type: type,
+          ),
         ),
       );
     } catch (e) {
