@@ -54,6 +54,7 @@ dependencies:
   image: ^4.0.17
   exif: ^3.3.0
   http: ^1.2.2
+  url_launcher: ^6.1.12
   opencv_card_cropper:
     path: ./opencv_card_cropper
   image_cropper: ^11.0.0
