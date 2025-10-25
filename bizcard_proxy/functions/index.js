@@ -466,8 +466,9 @@ app.use(async (req, res, next) => {
 // Optional HMAC signature middleware for anti-replay and CSRF-like protection.
 // Set PROXY_REQUIRE_SIGNATURE=true and PROXY_SIGNATURE_SECRET to enable.
 // The client should send header PROXY_SIGNATURE_HEADER (default 'x-proxy-signature') with value: <timestamp>:<hex_hmac>
-const PROXY_REQUIRE_SIGNATURE = process.env.PROXY_REQUIRE_SIGNATURE === 'true';
 const PROXY_SIGNATURE_SECRET = process.env.PROXY_SIGNATURE_SECRET || null;
+// If explicitly set to 'false', do not require signature. Otherwise, if a secret is present, default to requiring it.
+const PROXY_REQUIRE_SIGNATURE = process.env.PROXY_REQUIRE_SIGNATURE === 'false' ? false : (process.env.PROXY_REQUIRE_SIGNATURE === 'true' || !!PROXY_SIGNATURE_SECRET);
 const PROXY_SIGNATURE_HEADER = process.env.PROXY_SIGNATURE_HEADER || 'x-proxy-signature';
 const PROXY_SIGNATURE_TTL_MS = process.env.PROXY_SIGNATURE_TTL_MS ? parseInt(process.env.PROXY_SIGNATURE_TTL_MS, 10) : 2 * 60 * 1000; // 2 minutes
 

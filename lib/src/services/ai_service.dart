@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:card2sheet/core/env.dart';
+import 'local_trust_service.dart';
+import 'request_signer.dart';
 
 class AIService {
   late final String? _apiKey = env('GEMINI_API_KEY');
@@ -31,15 +33,36 @@ class AIService {
     final url = _proxyUrl!.replaceAll(RegExp(r'/*$'), '');
     final endpoint = Uri.parse('$url/format-card');
 
+    final token = await LocalTrustService.getOrCreateToken();
+
     final body = {
       'raw_text': rawText,
       'template': headers,
-      if (sessionId != null) 'session_id': sessionId,
+      if (sessionId != null) 'session_id': sessionId else 'session_id': token,
     };
 
     final resp = await http.post(
       endpoint,
-      headers: {'Content-Type': 'application/json'},
+      headers: () {
+        final headers = <String, String>{
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        };
+        final secret = env('PROXY_SIGNATURE_SECRET');
+        if (secret != null && secret.isNotEmpty) {
+          final rawBody = jsonEncode(body);
+          final ts = DateTime.now().millisecondsSinceEpoch;
+          final signature = computeProxySignature(
+            timestampMs: ts,
+            rawBody: rawBody,
+            secret: secret,
+          );
+          final headerName = env('PROXY_SIGNATURE_HEADER') ?? 'x-proxy-signature';
+          headers[headerName] = signature;
+          return headers;
+        }
+        return headers;
+      }(),
       body: jsonEncode(body),
     );
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'local_trust_service.dart';
+import 'request_signer.dart';
 
 class AIProcessingResult {
   final String cleanedText;
@@ -26,16 +28,32 @@ class AIProcessingService {
     // 1) Proxy path
     if (useProxy && proxyUrl != null && proxyUrl.isNotEmpty) {
       final uri = Uri.parse('$proxyUrl/process-ocr');
-      final body = jsonEncode({
+      final token = await LocalTrustService.getOrCreateToken();
+      final bodyMap = <String, dynamic>{
         'raw_text': extractedText,
-        if (sessionId != null) 'session_id': sessionId,
-      });
+        if (sessionId != null) 'session_id': sessionId else 'session_id': token,
+      };
+      final body = jsonEncode(bodyMap);
+
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+      final secret = dotenv.maybeGet('PROXY_SIGNATURE_SECRET') ?? const String.fromEnvironment('PROXY_SIGNATURE_SECRET');
+      if (secret.isNotEmpty) {
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        final signature = computeProxySignature(
+          timestampMs: ts,
+          rawBody: body,
+          secret: secret,
+        );
+        final headerName = dotenv.maybeGet('PROXY_SIGNATURE_HEADER') ?? const String.fromEnvironment('PROXY_SIGNATURE_HEADER', defaultValue: 'x-proxy-signature');
+        headers[headerName] = signature;
+      }
 
       final resp = await http.post(
         uri,
-        headers: const {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: body,
       );
 
