@@ -1,4 +1,4 @@
-const { sanitizeRawText, validateRequest, estimateTokensFromText, extractJsonFromText } = require('../lib/parser');
+const { sanitizeRawText, validateRequest, estimateTokensFromText, extractJsonFromText } = require('../utils/parser');
 
 describe('parser utilities', () => {
   test('sanitizeRawText removes control chars and collapses whitespace', () => {

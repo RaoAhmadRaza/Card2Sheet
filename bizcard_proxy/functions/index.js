@@ -37,12 +37,23 @@ if (process.env.SENTRY_DSN) {
     Sentry = require('@sentry/node');
     Sentry.init({ dsn: process.env.SENTRY_DSN });
     console.log('Sentry initialized');
+    // Ensure request handler is registered before routes
     app.use(Sentry.Handlers.requestHandler());
   } catch (e) {
     console.warn('Sentry init failed:', e.message || e);
     Sentry = null;
   }
 }
+// Lightweight latency logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    try {
+      console.log(`[${res.statusCode}] ${req.path} - ${Date.now() - start}ms`);
+    } catch (_) { /* noop */ }
+  });
+  next();
+});
 
 // Initialize Google Cloud Logging (optional)
 let loggingClient = null;
@@ -201,48 +212,15 @@ async function fetchWithRetry(url, options = {}, maxAttempts = RETRY_MAX_ATTEMPT
   }
 }
 
-// Input validation / sanitization defaults
-const MAX_RAW_TEXT_LEN = process.env.MAX_RAW_TEXT_LEN ? parseInt(process.env.MAX_RAW_TEXT_LEN, 10) : 4000; // characters
-const MAX_TEMPLATE_HEADERS = process.env.MAX_TEMPLATE_HEADERS ? parseInt(process.env.MAX_TEMPLATE_HEADERS, 10) : 40;
-const MAX_TEMPLATE_HEADER_LEN = process.env.MAX_TEMPLATE_HEADER_LEN ? parseInt(process.env.MAX_TEMPLATE_HEADER_LEN, 10) : 64;
-const MAX_BODY_KEYS = process.env.MAX_BODY_KEYS ? parseInt(process.env.MAX_BODY_KEYS, 10) : 20;
-const HEADER_NAME_REGEX = /^[\w \-\.()]{1,64}$/; // allow letters, numbers, underscore, space, hyphen, dot, parentheses
+// Unified parser utilities
+const {
+  sanitizeRawText,
+  validateRequest,
+  estimateTokensFromText,
+  extractJsonFromText,
+} = require('./utils/parser');
 
-function sanitizeRawText(raw) {
-  if (!raw || typeof raw !== 'string') return '';
-  // Trim and remove control characters except common whitespace
-  // Replace consecutive whitespace with single space
-  const cleaned = raw.replace(/[\x00-\x1F\x7F]+/g, ' ').trim().replace(/\s+/g, ' ');
-  return cleaned;
-}
-
-function validateRequest(body) {
-  if (!body || typeof body !== 'object') return 'missing_body';
-  const keys = Object.keys(body || {});
-  if (keys.length > MAX_BODY_KEYS) return 'too_many_fields';
-
-  const raw = body.raw_text;
-  if (!raw || typeof raw !== 'string') return 'missing_raw_text';
-  if (raw.length > MAX_RAW_TEXT_LEN) return 'raw_text_too_long';
-
-  if (body.session_id && typeof body.session_id === 'string') {
-    if (body.session_id.length > 256) return 'session_id_too_long';
-  }
-
-  if (body.template !== undefined) {
-    if (!Array.isArray(body.template)) return 'invalid_template_format';
-    if (body.template.length > MAX_TEMPLATE_HEADERS) return 'too_many_template_headers';
-    for (const h of body.template) {
-      if (typeof h !== 'string') return 'invalid_template_header_type';
-      if (h.length === 0 || h.length > MAX_TEMPLATE_HEADER_LEN) return 'template_header_length';
-      if (!HEADER_NAME_REGEX.test(h)) return 'template_header_invalid_chars';
-    }
-  }
-
-  return null;
-}
-
-// Simple in-memory rate limiter per session_id (not for production)
+// Simple in-memory rate limiter per session_id (fallback when Redis not configured)
 const limits = new Map();
 const WINDOW_MS = 60 * 1000; // 1 minute
 const MAX_PER_WINDOW = 30; // max 30 requests per minute per session
@@ -254,12 +232,6 @@ const QUOTA_MAX_REQUESTS = process.env.QUOTA_MAX_REQUESTS ? parseInt(process.env
 
 // In-memory fallback for quotas (not persistent)
 const quotaMemory = new Map();
-
-function estimateTokensFromText(s) {
-  if (!s || typeof s !== 'string') return 0;
-  // crude approximation: 1 token per 4 chars
-  return Math.max(1, Math.ceil(s.length / 4));
-}
 
 async function checkAndReserveQuota(sessionId, reserveTokens = 0, reserveRequests = 1) {
   // If Redis available, use it
@@ -413,31 +385,21 @@ async function checkRateLimit(sessionId) {
 
   // Fallback to in-memory
   const now = Date.now();
+  // Respect environment overrides for window and max even in memory mode
+  const windowMs = process.env.RATE_LIMIT_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) : WINDOW_MS;
+  const maxPerWindow = process.env.RATE_LIMIT_MAX ? parseInt(process.env.RATE_LIMIT_MAX, 10) : MAX_PER_WINDOW;
   const entry = limits.get(sessionId) || { ts: now, count: 0 };
-  if (now - entry.ts > WINDOW_MS) {
+  if (now - entry.ts > windowMs) {
     entry.ts = now;
     entry.count = 1;
   } else {
     entry.count += 1;
   }
   limits.set(sessionId, entry);
-  return entry.count <= MAX_PER_WINDOW;
+  return entry.count <= maxPerWindow;
 }
 
-function extractJsonFromText(text) {
-  if (!text) return null;
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) {
-    const jsonString = text.substring(start, end + 1);
-    try {
-      return JSON.parse(jsonString);
-    } catch (e) {
-      return null;
-    }
-  }
-  return null;
-}
+// extractJsonFromText provided by utils/parser
 
 // Simple local token verification middleware (no Firebase login).
 // If REQUIRE_AUTH=true and signature middleware is not enforced, verify Authorization: Bearer <token>
@@ -532,7 +494,8 @@ async function isReplay(key) {
   if (replayCache.has(key)) return true;
   replayCache.add(key);
   // schedule eviction
-  setTimeout(() => replayCache.delete(key), Math.max(1000, PROXY_SIGNATURE_TTL_MS));
+  const t = setTimeout(() => replayCache.delete(key), Math.max(1000, PROXY_SIGNATURE_TTL_MS));
+  if (typeof t.unref === 'function') t.unref();
   return false;
 }
 
@@ -766,10 +729,10 @@ app.get('/quota-status/:sessionId', async (req, res) => {
   }
 });
 
-  // attach Sentry error handler if configured
-  if (Sentry) {
-    app.use(Sentry.Handlers.errorHandler());
-  }
+// attach Sentry error handler after routes
+if (Sentry) {
+  app.use(Sentry.Handlers.errorHandler());
+}
 
 // Export for Firebase Functions or run standalone
 if (require.main === module) {
@@ -789,3 +752,6 @@ try {
   // Not running in Firebase Functions environment - expose app for standalone run
   module.exports = app;
 }
+
+// Always export app for tests and tooling
+module.exports.app = app;
