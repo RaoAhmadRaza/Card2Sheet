@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
@@ -108,7 +109,10 @@ class _ProcessingScreenState extends State<ProcessingScreen>
     try {
       // Actually extract text
       final svc = OCRService();
-      final extractedText = await svc.extractTextFromImage(File(widget.imagePath));
+      // Guard against device stalls: time out OCR after 20s
+      final extractedText = await svc
+          .extractTextFromImage(File(widget.imagePath))
+          .timeout(const Duration(seconds: 20));
       
       // Mark step 1 (OCR) complete and advance progress to ~33%
       setState(() {
@@ -127,8 +131,11 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         _currentStep = 1; // now processing/structuring
       });
 
-      final aiSvc = AIProcessingService();
-      final result = await aiSvc.processOcrText(extractedText);
+    final aiSvc = AIProcessingService();
+    // If proxy/API key are not configured, this returns fast; otherwise cap to 25s
+    final result = await aiSvc
+      .processOcrText(extractedText)
+      .timeout(const Duration(seconds: 25));
 
       // Mark structuring complete and advance progress to ~66%
       setState(() {
@@ -181,6 +188,13 @@ class _ProcessingScreenState extends State<ProcessingScreen>
           ),
         );
       }
+  } on TimeoutException {
+      // Safety net: if OCR/AI hangs on some devices, fail soft and return
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Processing timed out. Please try again.')),
+      );
+      Navigator.of(context).pop();
     } catch (e) {
       // Handle error
       if (mounted) {

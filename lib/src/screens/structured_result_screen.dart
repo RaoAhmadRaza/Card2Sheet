@@ -164,6 +164,7 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
 
     // 2) If none selected, let user choose: default CSV or pick a file
     if (path == null || type == null) {
+      if (!mounted) return;
       final action = await showModalBottomSheet<String>(
         context: context,
         backgroundColor: const Color(0xFFF2F2F7),
@@ -298,38 +299,22 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
 
   Future<void> _appendToCsv(File file) async {
     final exists = await file.exists();
-    final currentHeaders = <String>[];
     final rows = <List<dynamic>>[];
 
+    // Read all existing rows as-is (no special header handling)
     if (exists) {
       final content = await file.readAsString();
       if (content.trim().isNotEmpty) {
         final parsed = const CsvToListConverter().convert(content);
-        if (parsed.isNotEmpty) {
-          currentHeaders.addAll(parsed.first.map((e) => e.toString()));
-          if (parsed.length > 1) {
-            rows.addAll(parsed.sublist(1));
-          }
-        }
+        if (parsed.isNotEmpty) rows.addAll(parsed);
       }
     }
 
-    if (currentHeaders.isEmpty) {
-      currentHeaders.addAll(_orderedHeaders().map(_getDisplayLabel));
-    }
+    // Build a values-only row in a consistent order without any header row
+    final orderedKeys = _orderedHeaders();
+    final newRow = orderedKeys.map((k) => _editableData[k] ?? '').toList();
 
-    // Map our data by display label (lowercase) for matching
-    final ourMap = <String, String>{};
-    for (final key in _orderedHeaders()) {
-      ourMap[_getDisplayLabel(key).toLowerCase()] = _editableData[key] ?? '';
-    }
-
-    final newRow = currentHeaders
-        .map((h) => ourMap[h.toLowerCase()] ?? '')
-        .toList();
-
-    // Rebuild CSV with existing headers, existing rows, and appended row
-    final allRows = <List<dynamic>>[currentHeaders, ...rows, newRow];
+    final allRows = <List<dynamic>>[...rows, newRow];
     final csv = const ListToCsvConverter().convert(allRows);
     await file.writeAsString(csv);
   }
@@ -347,73 +332,19 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
     sheetName = book.getDefaultSheet() ?? sheetName;
     final sheet = book[sheetName];
 
-    // Try to read existing headers; be resilient to cell wrapper types and
-    // possible blank first rows created by some viewers.
-    final currentHeaders = _readExistingExcelHeaders(sheet);
-
-    if (currentHeaders.isEmpty) {
-      // No headers detected anywhere: write our headers once.
-      final headers = _orderedHeaders().map(_getDisplayLabel).toList();
-      sheet.appendRow(headers.map<xlsx.CellValue?>((h) => xlsx.TextCellValue(h)).toList());
-      currentHeaders.addAll(headers);
-    }
-
-    // Map our data by display label (lowercase)
-    final ourMap = <String, String>{};
-    for (final key in _orderedHeaders()) {
-      ourMap[_getDisplayLabel(key).toLowerCase()] = _editableData[key] ?? '';
-    }
-
-    final row = currentHeaders
-        .map<xlsx.CellValue?>((h) => xlsx.TextCellValue(ourMap[h.toLowerCase()] ?? ''))
+    // Values-only row; no header row at all
+    final orderedKeys = _orderedHeaders();
+    final valueRow = orderedKeys
+        .map<xlsx.CellValue?>((k) => xlsx.TextCellValue(_editableData[k] ?? ''))
         .toList();
-    sheet.appendRow(row);
+    sheet.appendRow(valueRow);
 
     final bytes = book.encode();
     if (bytes == null) throw Exception('Failed to encode Excel file');
     await file.writeAsBytes(bytes, flush: true);
   }
 
-  // Read headers from the sheet robustly. We look at the first few rows and
-  // return the first row that contains at least two non-empty cells or matches
-  // our expected display labels. Cell values are sanitized to plain strings.
-  List<String> _readExistingExcelHeaders(xlsx.Sheet sheet) {
-    final expected = _orderedHeaders().map((e) => _getDisplayLabel(e).toLowerCase()).toList();
-
-    List<String> readRow(int rowIndex) {
-      final cells = <String>[];
-      for (var c = 0; c < 100; c++) {
-        final cell = sheet.cell(xlsx.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: rowIndex));
-        final text = _sanitizeCellString(cell.value);
-        if (text.isEmpty) {
-          if (cells.isNotEmpty) break; // stop at first blank after content
-          continue;
-        }
-        cells.add(text);
-      }
-      return cells;
-    }
-
-    // Check first 5 rows for a plausible header row
-    for (var r = 0; r < 5; r++) {
-      final row = readRow(r);
-      if (row.isEmpty) continue;
-      final lower = row.map((e) => e.toLowerCase()).toList();
-      final matchesExpected = lower.where((e) => expected.contains(e)).length >= 2;
-      if (matchesExpected || row.length >= 2) {
-        return row;
-      }
-    }
-    return <String>[];
-  }
-
-  // Some excel cells stringify as 'TextCellValue(Name)'. Strip that wrapper.
-  String _sanitizeCellString(Object? val) {
-    if (val == null) return '';
-    final s = val.toString().trim();
-    final m = RegExp(r'^[A-Za-z]+CellValue\((.*)\)$').firstMatch(s);
-    return m != null ? m.group(1)!.trim() : s;
-  }
+  // Removed header-detection helpers since we now write values-only rows
 
   void _toggleEditMode() {
     setState(() {
@@ -644,7 +575,7 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
                       borderRadius: BorderRadius.circular(16), // More rounded corners
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1), // Stronger shadow
+                          color: Colors.black.withValues(alpha: 0.1), // Stronger shadow
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                           spreadRadius: 0,
@@ -674,7 +605,7 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
                     borderRadius: BorderRadius.circular(16), // Rounded corners
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2), // Soft outer shadow
+                        color: Colors.black.withValues(alpha: 0.2), // Soft outer shadow
                         blurRadius: 12,
                         offset: const Offset(0, 6),
                         spreadRadius: 0,
