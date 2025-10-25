@@ -8,6 +8,7 @@ import 'screens/card_scan_screen.dart';
 import 'screens/extraction_screen.dart';
 import 'screens/results_screen.dart';
 import 'screens/spreadsheet_manager_screen.dart';
+import 'screens/simple_history_screen.dart';
 
 class Card2SheetApp extends StatelessWidget {
   const Card2SheetApp({super.key});
@@ -29,6 +30,7 @@ class Card2SheetApp extends StatelessWidget {
         AppRoutes.extraction: (_) => const ExtractionScreen(),
         AppRoutes.result: (_) => const ResultsScreen(),
         AppRoutes.sheets: (_) => const SpreadsheetManagerScreen(),
+        AppRoutes.debugSimpleHistory: (_) => const SimpleHistoryScreen(),
       },
     );
   }

@@ -7,4 +7,6 @@ class AppRoutes {
   static const extraction = '/extraction';
   static const result = '/result';
   static const sheets = '/sheets';
+  // Demo/tutorial route for simple scan history list
+  static const debugSimpleHistory = '/debug-simple-history';
 }

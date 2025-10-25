@@ -1,31 +1,38 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
-import 'package:excel/excel.dart' as xlsx;
 // import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+// Removed SharedPreferences; using providers instead
 import 'success_screen.dart';
+import '../providers/scan_result_provider.dart';
+import '../providers/sheet_provider.dart';
+import '../providers/session_provider.dart';
+import '../models/sheet_destination.dart';
+import '../services/analytics_service.dart';
+import '../providers/scan_history_simple_provider.dart';
+import '../models/scan_history.dart';
 
-class StructuredResultScreen extends StatefulWidget {
-  final Map<String, dynamic> structuredData;
-  final String originalText;
+class StructuredResultScreen extends ConsumerStatefulWidget {
+  final Map<String, dynamic>? structuredData;
+  final String? originalText;
 
   const StructuredResultScreen({
     super.key,
-    required this.structuredData,
-    required this.originalText,
+    this.structuredData,
+    this.originalText,
   });
 
   @override
-  State<StructuredResultScreen> createState() => _StructuredResultScreenState();
+  ConsumerState<StructuredResultScreen> createState() => _StructuredResultScreenState();
 }
 
-class _StructuredResultScreenState extends State<StructuredResultScreen> {
+class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen> {
   late Map<String, String> _editableData;
   bool _isEditing = false;
   String? _editingField;
@@ -62,12 +69,24 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
 
   void _initializeEditableData() {
     _editableData = <String, String>{};
-    
-    // Convert structured data to string values
-    for (final entry in widget.structuredData.entries) {
-      final value = entry.value;
-      if (value != null && value.toString().trim().isNotEmpty) {
-        _editableData[entry.key.toLowerCase().replaceAll(' ', '_')] = value.toString();
+    final provided = widget.structuredData;
+    if (provided != null && provided.isNotEmpty) {
+      for (final entry in provided.entries) {
+        final value = entry.value;
+        if (value != null && value.toString().trim().isNotEmpty) {
+          _editableData[entry.key.toLowerCase().replaceAll(' ', '_')] = value.toString();
+        }
+      }
+      return;
+    }
+    // Fallback: load from provider
+    final sr = ref.read(scanResultProvider);
+    if (sr != null) {
+      for (final entry in sr.structured.entries) {
+        final value = entry.value;
+        if (value.toString().trim().isNotEmpty) {
+          _editableData[entry.key.toLowerCase().replaceAll(' ', '_')] = value.toString();
+        }
       }
     }
   }
@@ -155,15 +174,14 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
 
   Future<void> _saveToSpreadsheet() async {
     HapticFeedback.heavyImpact();
+    // Use provider-driven selection but offer a picker if not set
+    final sheetState = ref.read(sheetProvider);
+    String? path = sheetState.filePath;
+    String type = sheetState.type.name; // 'csv' | 'xlsx'
+    String sheetName = 'Sheet1';
 
-    // 1) Check current selection
-    final current = await _getSelectedSpreadsheet();
-    String? path = current?['path'];
-    String? type = current?['type']; // 'csv' | 'xlsx'
-    String sheetName = current?['sheet'] ?? 'Sheet1';
-
-    // 2) If none selected, let user choose: default CSV or pick a file
-    if (path == null || type == null) {
+    // If none selected, let user choose: default CSV or pick a file
+    if (path == null || path.isEmpty) {
       if (!mounted) return;
       final action = await showModalBottomSheet<String>(
         context: context,
@@ -208,7 +226,8 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
         final file = await _ensureDefaultCsv();
         path = file.path;
         type = 'csv';
-  await _setSelectedSpreadsheet(path: path, type: type);
+        ref.read(sheetProvider.notifier).setType(SheetType.csv);
+        ref.read(sheetProvider.notifier).setFilePath(path);
       } else if (action == 'pick') {
         final result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
@@ -216,25 +235,41 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
         );
         if (result == null || result.files.single.path == null) return; // canceled
         path = result.files.single.path!;
-  final ext = path.toLowerCase().endsWith('.xlsx') ? 'xlsx' : (path.toLowerCase().endsWith('.csv') ? 'csv' : null);
+        final ext = path.toLowerCase().endsWith('.xlsx') ? 'xlsx' : (path.toLowerCase().endsWith('.csv') ? 'csv' : null);
         if (ext == null) {
           _showError('Unsupported file type. Please choose .csv or .xlsx');
           return;
         }
         type = ext;
-  await _setSelectedSpreadsheet(path: path, type: type, sheet: sheetName);
+        ref.read(sheetProvider.notifier).setType(ext == 'xlsx' ? SheetType.xlsx : SheetType.csv);
+        ref.read(sheetProvider.notifier).setFilePath(path);
       }
     }
 
-    if (path == null || type == null) return; // still no selection
+    if (path == null || path.isEmpty) return; // still no selection
 
     try {
-      final file = File(path);
-      if (type == 'csv') {
-        await _appendToCsv(file);
-      } else {
-        await _appendToExcel(file, sheetName: 'Sheet1');
-      }
+      // Persist via providers (debounced save) using values-only export
+      await ref.read(sheetProvider.notifier).saveEntryDebounced(_editableData,
+          destination: SheetDestination(
+            type: type == 'xlsx' ? SheetType.xlsx : SheetType.csv,
+            path: path,
+            sheetName: sheetName,
+            templateHeaders: _orderedHeaders(),
+          ));
+      ref.read(analyticsProvider).track(
+        type == 'xlsx' ? 'exported_to_xlsx' : 'exported_to_csv',
+        props: {'fields': _editableData.length},
+      );
+      // Demo/tutorial: also record a minimal ScanHistory entry in a separate box
+      final cardName = _editableData['name']?.trim().isNotEmpty == true
+          ? _editableData['name']!.trim()
+          : 'Business Card - ${DateTime.now().millisecondsSinceEpoch}';
+      await ref.read(scanHistoryProvider.notifier).addHistory(
+            ScanHistory(cardName, path, DateTime.now()),
+          );
+      // Optionally update session
+      await ref.read(sessionProvider.notifier).updateLastFilePathIfNeeded();
       if (!mounted) return;
       // Navigate to success screen after successful append
       Navigator.of(context).push(
@@ -267,22 +302,8 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
     return file;
   }
 
-  Future<Map<String, String>?> _getSelectedSpreadsheet() async {
-    final prefs = await SharedPreferences.getInstance();
-    final path = prefs.getString('spreadsheet_path');
-    final type = prefs.getString('spreadsheet_type');
-    final sheet = prefs.getString('spreadsheet_sheet');
-    if (path == null || type == null) return null;
-    return {'path': path, 'type': type, 'sheet': sheet ?? 'Sheet1'};
-  }
 
-  Future<void> _setSelectedSpreadsheet({required String path, required String type, String sheet = 'Sheet1'}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('spreadsheet_path', path);
-    await prefs.setString('spreadsheet_type', type);
-    await prefs.setString('spreadsheet_sheet', sheet);
-  }
-
+  // Build ordered headers: common fields first, then any extras
   // Build ordered headers: common fields first, then any extras
   List<String> _orderedHeaders() {
     final headers = <String>[];
@@ -293,55 +314,6 @@ class _StructuredResultScreenState extends State<StructuredResultScreen> {
       if (!headers.contains(key)) headers.add(key);
     }
     return headers;
-  }
-
-  // Removed unused helper
-
-  Future<void> _appendToCsv(File file) async {
-    final exists = await file.exists();
-    final rows = <List<dynamic>>[];
-
-    // Read all existing rows as-is (no special header handling)
-    if (exists) {
-      final content = await file.readAsString();
-      if (content.trim().isNotEmpty) {
-        final parsed = const CsvToListConverter().convert(content);
-        if (parsed.isNotEmpty) rows.addAll(parsed);
-      }
-    }
-
-    // Build a values-only row in a consistent order without any header row
-    final orderedKeys = _orderedHeaders();
-    final newRow = orderedKeys.map((k) => _editableData[k] ?? '').toList();
-
-    final allRows = <List<dynamic>>[...rows, newRow];
-    final csv = const ListToCsvConverter().convert(allRows);
-    await file.writeAsString(csv);
-  }
-
-  Future<void> _appendToExcel(File file, {String sheetName = 'Sheet1'}) async {
-    final exists = await file.exists();
-    xlsx.Excel book;
-    if (exists) {
-      final bytes = await file.readAsBytes();
-      book = xlsx.Excel.decodeBytes(bytes);
-    } else {
-      book = xlsx.Excel.createExcel();
-    }
-
-    sheetName = book.getDefaultSheet() ?? sheetName;
-    final sheet = book[sheetName];
-
-    // Values-only row; no header row at all
-    final orderedKeys = _orderedHeaders();
-    final valueRow = orderedKeys
-        .map<xlsx.CellValue?>((k) => xlsx.TextCellValue(_editableData[k] ?? ''))
-        .toList();
-    sheet.appendRow(valueRow);
-
-    final bytes = book.encode();
-    if (bytes == null) throw Exception('Failed to encode Excel file');
-    await file.writeAsBytes(bytes, flush: true);
   }
 
   // Removed header-detection helpers since we now write values-only rows

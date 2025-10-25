@@ -1,20 +1,24 @@
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
 import 'package:card2sheet/src/services/ai_processing_service.dart';
 import 'structured_result_screen.dart';
+import '../models/scan_result.dart';
+import '../providers/scan_result_provider.dart';
+import '../services/analytics_service.dart';
 
-class ProcessingScreen extends StatefulWidget {
+class ProcessingScreen extends ConsumerStatefulWidget {
   final String imagePath;
   const ProcessingScreen({super.key, required this.imagePath});
 
   @override
-  State<ProcessingScreen> createState() => _ProcessingScreenState();
+  ConsumerState<ProcessingScreen> createState() => _ProcessingScreenState();
 }
 
-class _ProcessingScreenState extends State<ProcessingScreen>
+class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
     with TickerProviderStateMixin {
   late AnimationController _progressController;
   late AnimationController _stepController;
@@ -98,6 +102,9 @@ class _ProcessingScreenState extends State<ProcessingScreen>
 
   Future<void> _startProcessing() async {
   // Initialize progress at 0; progress advances only after each step completes.
+    // Reset any previous result
+  ref.read(scanResultProvider.notifier).clear();
+    ref.read(analyticsProvider).track('scan_started');
     
     // Step 1: Extracting text
     setState(() {
@@ -175,12 +182,15 @@ class _ProcessingScreenState extends State<ProcessingScreen>
                 result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
               );
 
+    // Persist structured result via provider so the next screen can read it
+        final sr = ScanResult(rawText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
+            structured: Map<String, String>.from(structured.map((k, v) => MapEntry(k, v?.toString() ?? ''))));
+        await ref.read(scanResultProvider.notifier).setResult(sr, persist: true);
+    ref.read(analyticsProvider).track('scan_completed');
+
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => StructuredResultScreen(
-              structuredData: structured,
-              originalText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
-            ),
+            pageBuilder: (context, animation, secondaryAnimation) => const StructuredResultScreen(),
             transitionDuration: const Duration(milliseconds: 400),
             transitionsBuilder: (context, animation, secondaryAnimation, child) {
               return FadeTransition(opacity: animation, child: child);
