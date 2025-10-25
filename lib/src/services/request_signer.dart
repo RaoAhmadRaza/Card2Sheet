@@ -13,3 +13,13 @@ String computeProxySignature({
   final digest = hmacSha256.convert(utf8.encode(payload)).toString();
   return '${timestampMs.toString()}:$digest';
 }
+
+/// Computes a simple HMAC-SHA256 signature for a token with a shared secret.
+/// Returns the lowercase hex digest (64 chars).
+String computeTokenSignature({
+  required String token,
+  required String secret,
+}) {
+  final h = Hmac(sha256, utf8.encode(secret));
+  return h.convert(utf8.encode(token)).toString();
+}

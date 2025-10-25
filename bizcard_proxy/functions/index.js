@@ -9,6 +9,7 @@ try {
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const crypto = require('crypto');
 
 const app = express();
 app.use(helmet());
@@ -117,6 +118,8 @@ if (REDIS_URL) {
     redisClient = null;
   }
 }
+// Expose redis client on the app instance for routes/healthchecks
+app.set('redis', redisClient);
 
 // Google Secret Manager support (optional)
 let secretManagerClient = null;
@@ -436,45 +439,84 @@ function extractJsonFromText(text) {
   return null;
 }
 
-// Optional middleware to require Firebase ID token in Authorization header.
-// Set REQUIRE_AUTH=true in environment to enable.
-app.use(async (req, res, next) => {
+// Simple local token verification middleware (no Firebase login).
+// If REQUIRE_AUTH=true and signature middleware is not enforced, verify Authorization: Bearer <token>
+// using either a static APP_SECRET or an HMAC signature comparison (APP_SIGNATURE).
+app.use((req, res, next) => {
   try {
     const requireAuth = process.env.REQUIRE_AUTH === 'true';
     if (!requireAuth) return next();
-    const authHeader = req.headers.authorization || req.headers.Authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ ok: false, error: 'missing_auth' });
+
+    // If signature requirement is active, defer to signature middleware for enforcement.
+    if (PROXY_REQUIRE_SIGNATURE && PROXY_SIGNATURE_SECRET) return next();
+
+    // Prefer X-App-Token/X-App-Signature if present
+    const xToken = req.headers['x-app-token'];
+    const xSig = req.headers['x-app-signature'];
+
+    let token = null;
+    if (typeof xToken === 'string' && xToken.length > 0) {
+      token = xToken;
+    } else {
+      const header = req.headers.authorization || req.headers.Authorization;
+      if (!header || typeof header !== 'string' || !header.startsWith('Bearer ')) {
+        return res.status(401).json({ ok: false, error: 'missing_auth' });
+      }
+      token = header.split(' ')[1];
     }
-    const token = authHeader.split(' ')[1];
-    if (!admin) {
-      return res.status(500).json({ ok: false, error: 'server_misconfigured', message: 'firebase-admin not configured' });
+
+    const APP_SECRET = process.env.APP_SECRET || '';
+    const APP_SIGNATURE = process.env.APP_SIGNATURE || '';
+
+    // Option 1: Static shared secret
+    if (APP_SECRET && token === APP_SECRET) return next();
+
+    // Option 2a: Dynamic HMAC(token) header verification (X-App-Signature)
+    if (APP_SECRET && xSig && typeof xSig === 'string') {
+      const h = crypto.createHmac('sha256', APP_SECRET).update(token).digest('hex');
+      // timing-safe compare
+      try {
+        const a = Buffer.from(h, 'utf8');
+        const b = Buffer.from(xSig, 'utf8');
+        if (a.length === b.length && crypto.timingSafeEqual(a, b)) return next();
+      } catch (_) { /* no-op */ }
     }
-    try {
-      const decoded = await admin.auth().verifyIdToken(token);
-      req.user = decoded;
-      return next();
-    } catch (e) {
-      return res.status(401).json({ ok: false, error: 'invalid_token' });
+
+    // Option 2b: Precomputed signature env compare (legacy)
+    if (APP_SECRET && APP_SIGNATURE) {
+      try {
+        const h = crypto.createHmac('sha256', APP_SECRET).update(token).digest('hex');
+        if (h === APP_SIGNATURE) return next();
+      } catch (_) {}
     }
+
+    return res.status(401).json({ ok: false, error: 'invalid_token' });
   } catch (e) {
-    console.error('auth middleware error', e);
+    logEvent('error', 'local_auth_middleware_error', { error: e.message || e });
     return res.status(500).json({ ok: false, error: 'internal_error' });
   }
 });
 
 // Optional HMAC signature middleware for anti-replay and CSRF-like protection.
-// Set PROXY_REQUIRE_SIGNATURE=true and PROXY_SIGNATURE_SECRET to enable.
+// Set PROXY_REQUIRE_SIGNATURE=true and provide one or more secrets to enable.
 // The client should send header PROXY_SIGNATURE_HEADER (default 'x-proxy-signature') with value: <timestamp>:<hex_hmac>
 const PROXY_SIGNATURE_SECRET = process.env.PROXY_SIGNATURE_SECRET || null;
-// If explicitly set to 'false', do not require signature. Otherwise, if a secret is present, default to requiring it.
-const PROXY_REQUIRE_SIGNATURE = process.env.PROXY_REQUIRE_SIGNATURE === 'false' ? false : (process.env.PROXY_REQUIRE_SIGNATURE === 'true' || !!PROXY_SIGNATURE_SECRET);
+const PROXY_SIGNATURE_SECRET_PREV = process.env.PROXY_SIGNATURE_SECRET_PREV || null;
+const PROXY_SIGNATURE_SECRETS = (process.env.PROXY_SIGNATURE_SECRETS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+// Consolidate candidate secrets: CSV list takes precedence; else use current + prev if provided
+const SIG_SECRETS = PROXY_SIGNATURE_SECRETS.length > 0
+  ? PROXY_SIGNATURE_SECRETS
+  : [PROXY_SIGNATURE_SECRET, PROXY_SIGNATURE_SECRET_PREV].filter(Boolean);
+// If explicitly set to 'false', do not require signature. Otherwise, require if any secret configured or env says true.
+const PROXY_REQUIRE_SIGNATURE = process.env.PROXY_REQUIRE_SIGNATURE === 'false' ? false : (process.env.PROXY_REQUIRE_SIGNATURE === 'true' || SIG_SECRETS.length > 0);
 const PROXY_SIGNATURE_HEADER = process.env.PROXY_SIGNATURE_HEADER || 'x-proxy-signature';
 const PROXY_SIGNATURE_TTL_MS = process.env.PROXY_SIGNATURE_TTL_MS ? parseInt(process.env.PROXY_SIGNATURE_TTL_MS, 10) : 2 * 60 * 1000; // 2 minutes
 
 const replayCache = new Set(); // simple in-memory replay cache fallback
 
-const crypto = require('crypto');
 
 async function isReplay(key) {
   if (redisClient) {
@@ -497,9 +539,9 @@ async function isReplay(key) {
 app.use(async (req, res, next) => {
   try {
     if (!PROXY_REQUIRE_SIGNATURE) return next();
-    if (!PROXY_SIGNATURE_SECRET) {
+    if (!SIG_SECRETS || SIG_SECRETS.length === 0) {
       logEvent('warn', 'signature_config_missing');
-      return res.status(500).json({ ok: false, error: 'server_misconfigured', message: 'PROXY_SIGNATURE_SECRET required' });
+      return res.status(500).json({ ok: false, error: 'server_misconfigured', message: 'signature secrets required' });
     }
     const header = req.headers[PROXY_SIGNATURE_HEADER];
     if (!header || typeof header !== 'string') return res.status(401).json({ ok: false, error: 'missing_signature' });
@@ -512,17 +554,38 @@ app.use(async (req, res, next) => {
     if (Math.abs(now - ts) > PROXY_SIGNATURE_TTL_MS) return res.status(401).json({ ok: false, error: 'signature_expired' });
 
     const payload = `${ts}:${req.rawBody || ''}`;
-    const h = crypto.createHmac('sha256', PROXY_SIGNATURE_SECRET).update(payload).digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(h), Buffer.from(sig))) return res.status(401).json({ ok: false, error: 'invalid_signature' });
+    // Try all candidate secrets for rotation window support
+    let matchedHmac = null;
+    for (const secret of SIG_SECRETS) {
+      try {
+        const h = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+        if (crypto.timingSafeEqual(Buffer.from(h), Buffer.from(sig))) {
+          matchedHmac = h;
+          break;
+        }
+      } catch (_) { /* ignore */ }
+    }
+    if (!matchedHmac) return res.status(401).json({ ok: false, error: 'invalid_signature' });
 
-    // prevent replay attacks using signature as key
-    const replayKey = `sig:${h}`;
+    // prevent replay attacks using the matched signature as key
+    const replayKey = `sig:${matchedHmac}`;
     if (await isReplay(replayKey)) return res.status(401).json({ ok: false, error: 'replay' });
 
     return next();
   } catch (e) {
     logEvent('error', 'signature_middleware_error', { error: e.message || e });
     return res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+// Redis healthcheck endpoint
+app.get('/health/redis', async (req, res) => {
+  const rc = req.app.get('redis');
+  if (!rc) return res.status(503).json({ ok: false, connected: false, error: 'redis_unconfigured' });
+  try {
+    const pong = await rc.ping();
+    return res.json({ ok: true, connected: true, ping: pong });
+  } catch (e) {
+    return res.status(500).json({ ok: false, connected: false, error: e.message || String(e) });
   }
 });
 
@@ -710,6 +773,9 @@ app.get('/quota-status/:sessionId', async (req, res) => {
 
 // Export for Firebase Functions or run standalone
 if (require.main === module) {
+  if (process.env.NODE_ENV === 'production' && process.env.PROXY_SIGNATURE_SECRET === 'test_secret') {
+    console.warn('⚠️ Using default signature secret in production!');
+  }
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log(`bizcard-proxy listening on ${port}`));
 }

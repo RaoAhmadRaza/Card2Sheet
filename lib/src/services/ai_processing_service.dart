@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'local_trust_service.dart';
 import 'request_signer.dart';
+import 'session_id_service.dart';
 
 class AIProcessingResult {
   final String cleanedText;
@@ -29,33 +30,45 @@ class AIProcessingService {
     if (useProxy && proxyUrl != null && proxyUrl.isNotEmpty) {
       final uri = Uri.parse('$proxyUrl/process-ocr');
       final token = await LocalTrustService.getOrCreateToken();
+      final sid = sessionId ?? await SessionIdService.getOrCreateSessionId();
       final bodyMap = <String, dynamic>{
         'raw_text': extractedText,
-        if (sessionId != null) 'session_id': sessionId else 'session_id': token,
+        'session_id': sid,
       };
       final body = jsonEncode(bodyMap);
 
-      final headers = <String, String>{
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      };
-      final secret = dotenv.maybeGet('PROXY_SIGNATURE_SECRET') ?? const String.fromEnvironment('PROXY_SIGNATURE_SECRET');
-      if (secret.isNotEmpty) {
-        final ts = DateTime.now().millisecondsSinceEpoch;
-        final signature = computeProxySignature(
-          timestampMs: ts,
-          rawBody: body,
-          secret: secret,
-        );
-        final headerName = dotenv.maybeGet('PROXY_SIGNATURE_HEADER') ?? const String.fromEnvironment('PROXY_SIGNATURE_HEADER', defaultValue: 'x-proxy-signature');
-        headers[headerName] = signature;
+      Map<String, String> _buildHeaders() {
+        final headers = <String, String>{
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        };
+        // Optional app-level token + signature
+        final appSecret = dotenv.maybeGet('APP_SECRET') ?? const String.fromEnvironment('APP_SECRET');
+        if (appSecret.isNotEmpty) {
+          headers['X-App-Token'] = token;
+          headers['X-App-Signature'] = computeTokenSignature(token: token, secret: appSecret);
+        }
+        final secret = dotenv.maybeGet('PROXY_SIGNATURE_SECRET') ?? const String.fromEnvironment('PROXY_SIGNATURE_SECRET');
+        if (secret.isNotEmpty) {
+          final ts = DateTime.now().millisecondsSinceEpoch;
+          final signature = computeProxySignature(
+            timestampMs: ts,
+            rawBody: body,
+            secret: secret,
+          );
+          final headerName = dotenv.maybeGet('PROXY_SIGNATURE_HEADER') ?? const String.fromEnvironment('PROXY_SIGNATURE_HEADER', defaultValue: 'x-proxy-signature');
+          headers[headerName] = signature;
+        }
+        return headers;
       }
 
-      final resp = await http.post(
-        uri,
-        headers: headers,
-        body: body,
-      );
+      Future<http.Response> _sendOnce() => http.post(uri, headers: _buildHeaders(), body: body);
+
+      var resp = await _sendOnce();
+      if (resp.statusCode == 401) {
+        // Retry once with a fresh timestamp/signature
+        resp = await _sendOnce();
+      }
 
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
         throw Exception('AI processing failed (${resp.statusCode}): ${resp.body}');

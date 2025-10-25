@@ -38,3 +38,58 @@ This project is scaffolded for the "card2sheet" app and includes packages for OC
 flutter pub get
 flutter run
 ```
+
+## Proxy auth setup (required for secure mode)
+
+The app can call the included Node.js proxy (`bizcard_proxy/functions`) without Firebase login by using a local device token and HMAC signatures.
+
+Backend environment (do not commit secrets):
+
+```bash
+# .env for proxy (example)
+REQUIRE_AUTH=true
+APP_SECRET=change_me_strong_random
+PROXY_SIGNATURE_SECRET=another_strong_random
+# optional overrides
+# PROXY_SIGNATURE_HEADER=x-proxy-signature
+# PROXY_REQUIRE_SIGNATURE=true
+# QUOTA/RATE LIMIT envs as needed
+```
+
+Quick local test (replace values and URL):
+
+```bash
+curl -X POST https://yourproxy.com/process-ocr \
+   -H "Authorization: Bearer <APP_SECRET>" \
+   -H "Content-Type: application/json" \
+   -d '{"raw_text":"John Doe","session_id":"test-session"}'
+```
+
+Toggle auth for testing:
+
+- REQUIRE_AUTH=false → endpoints open (development only)
+- REQUIRE_AUTH=true → requests without headers/signatures are rejected with 401
+
+Client behavior:
+
+- Generates a persistent anonymous session UUID on onboarding
+- Generates a persistent local trust token and attaches:
+   - Authorization: Bearer `TOKEN`
+   - Optional: X-App-Token and X-App-Signature (HMAC over token when APP_SECRET is set)
+   - Optional: x-proxy-signature (timestamped HMAC over raw body when PROXY_SIGNATURE_SECRET is set)
+- Retries once automatically on HTTP 401 for transient timing issues
+
+## Release build hardening
+
+- Keep APP_SECRET only on the server; never bake real secrets into the app.
+- When shipping to stores, consider enabling Dart obfuscation and ProGuard/R8:
+
+```bash
+# Android example (CI or local):
+flutter build apk --release --obfuscate --split-debug-info=build/obf
+
+# iOS example (Xcode Release with bitcode off; Dart obfuscation):
+flutter build ios --release --obfuscate --split-debug-info=build/obf
+```
+
+Note: Obfuscation makes reverse-engineering harder but isn’t a substitute for server-side verification.

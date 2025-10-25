@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/routes.dart';
 import '../providers/auth_session_provider.dart';
 import '../models/session_model.dart';
+import '../services/local_trust_service.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -18,6 +19,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     super.initState();
     // Defer to next frame for provider readiness, then route based on auth state
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Ensure a local trust token exists as early as possible
+      await LocalTrustService.getOrCreateToken();
       // Initial check
       _routeNow();
       // Also listen in case hydration finishes slightly later

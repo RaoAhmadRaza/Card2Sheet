@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/routes.dart';
+import '../services/local_trust_service.dart';
+import '../services/session_id_service.dart';
 
 class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({super.key});
@@ -112,7 +114,15 @@ class OnboardingScreen extends StatelessWidget {
                       ],
                     ),
                     child: ElevatedButton(
-                      onPressed: () => Navigator.of(context).pushReplacementNamed(AppRoutes.csvUpload),
+                      onPressed: () async {
+                        // Ensure a persistent local session token exists before first proxy call
+                        await LocalTrustService.getOrCreateToken();
+                        // Ensure a persistent anonymous session UUID exists
+                        await SessionIdService.getOrCreateSessionId();
+                        if (context.mounted) {
+                          Navigator.of(context).pushReplacementNamed(AppRoutes.csvUpload);
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF1D1D1F),
                         foregroundColor: Colors.white,

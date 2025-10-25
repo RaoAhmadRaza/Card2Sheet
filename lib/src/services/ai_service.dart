@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:card2sheet/core/env.dart';
 import 'local_trust_service.dart';
 import 'request_signer.dart';
+import 'session_id_service.dart';
 
 class AIService {
   late final String? _apiKey = env('GEMINI_API_KEY');
@@ -34,37 +35,44 @@ class AIService {
     final endpoint = Uri.parse('$url/format-card');
 
     final token = await LocalTrustService.getOrCreateToken();
+    final sid = sessionId ?? await SessionIdService.getOrCreateSessionId();
 
-    final body = {
+    final bodyMap = {
       'raw_text': rawText,
       'template': headers,
-      if (sessionId != null) 'session_id': sessionId else 'session_id': token,
+      'session_id': sid,
     };
+    final rawBody = jsonEncode(bodyMap);
 
-    final resp = await http.post(
-      endpoint,
-      headers: () {
-        final headers = <String, String>{
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        };
-        final secret = env('PROXY_SIGNATURE_SECRET');
-        if (secret != null && secret.isNotEmpty) {
-          final rawBody = jsonEncode(body);
-          final ts = DateTime.now().millisecondsSinceEpoch;
-          final signature = computeProxySignature(
-            timestampMs: ts,
-            rawBody: rawBody,
-            secret: secret,
-          );
-          final headerName = env('PROXY_SIGNATURE_HEADER') ?? 'x-proxy-signature';
-          headers[headerName] = signature;
-          return headers;
-        }
-        return headers;
-      }(),
-      body: jsonEncode(body),
-    );
+    Future<http.Response> _sendOnce() async {
+      final headersMap = <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+      final appSecret = env('APP_SECRET');
+      if (appSecret != null && appSecret.isNotEmpty) {
+        headersMap['X-App-Token'] = token;
+        headersMap['X-App-Signature'] = computeTokenSignature(token: token, secret: appSecret);
+      }
+      final secret = env('PROXY_SIGNATURE_SECRET');
+      if (secret != null && secret.isNotEmpty) {
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        final signature = computeProxySignature(
+          timestampMs: ts,
+          rawBody: rawBody,
+          secret: secret,
+        );
+        final headerName = env('PROXY_SIGNATURE_HEADER') ?? 'x-proxy-signature';
+        headersMap[headerName] = signature;
+      }
+      return http.post(endpoint, headers: headersMap, body: rawBody);
+    }
+
+    var resp = await _sendOnce();
+    if (resp.statusCode == 401) {
+      // Retry once (e.g., clock skew for signature TTL or transient policy)
+      resp = await _sendOnce();
+    }
 
     if (resp.statusCode == 200) {
       final decoded = jsonDecode(resp.body);
