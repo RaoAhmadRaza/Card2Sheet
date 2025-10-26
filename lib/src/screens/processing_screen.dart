@@ -10,6 +10,8 @@ import '../models/scan_result.dart';
 import '../providers/scan_result_provider.dart';
 import '../services/analytics_service.dart';
 
+enum RecoveryAction { retry, fallback, dismiss }
+
 class ProcessingScreen extends ConsumerStatefulWidget {
   final String imagePath;
   const ProcessingScreen({super.key, required this.imagePath});
@@ -95,7 +97,10 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
       ),
     );
     
-    _startProcessing();
+    // Schedule processing after first frame to avoid mutating providers during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _startProcessing();
+    });
     _pulseController.repeat(reverse: true);
     _fadeController.forward();
   }
@@ -111,15 +116,31 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
       _currentStep = 0;
     });
     
-    await Future.delayed(const Duration(milliseconds: 800));
+  await Future.delayed(const Duration(milliseconds: 800));
     
-    try {
+  try {
       // Actually extract text
       final svc = OCRService();
       // Guard against device stalls: time out OCR after 20s
-      final extractedText = await svc
-          .extractTextFromImage(File(widget.imagePath))
-          .timeout(const Duration(seconds: 20));
+      String extractedText;
+      try {
+        extractedText = await svc
+            .extractTextFromImage(File(widget.imagePath))
+            .timeout(const Duration(seconds: 20));
+      } on TimeoutException {
+        // Specific OCR timeout handling: offer retry or skip OCR
+        if (!mounted) return;
+        final action = await _showOcrRecoveryDialog();
+        if (action == RecoveryAction.retry) {
+          extractedText = await svc
+              .extractTextFromImage(File(widget.imagePath))
+              .timeout(const Duration(seconds: 20));
+        } else if (action == RecoveryAction.fallback) {
+          extractedText = '';
+        } else {
+          rethrow;
+        }
+      }
       
       // Mark step 1 (OCR) complete and advance progress to ~33%
       setState(() {
@@ -140,9 +161,30 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
 
     final aiSvc = AIProcessingService();
     // If proxy/API key are not configured, this returns fast; otherwise cap to 25s
-    final result = await aiSvc
-      .processOcrText(extractedText)
-      .timeout(const Duration(seconds: 25));
+    AIProcessingResult result;
+    try {
+      result = await aiSvc
+          .processOcrText(extractedText)
+          .timeout(const Duration(seconds: 25));
+    } catch (e) {
+      // Network/proxy error: present a recovery UI and act based on selection
+      if (!mounted) return;
+      final action = await _showConnectivityRecoveryDialog(error: e.toString());
+      if (action == RecoveryAction.fallback) {
+        result = AIProcessingResult(
+          cleanedText: extractedText,
+          structuredJson: const {},
+          finalJson: const {},
+        );
+      } else if (action == RecoveryAction.retry) {
+        // Try once more
+        result = await aiSvc
+            .processOcrText(extractedText)
+            .timeout(const Duration(seconds: 25));
+      } else {
+        rethrow;
+      }
+    }
 
       // Mark structuring complete and advance progress to ~66%
       setState(() {
@@ -183,9 +225,10 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
               );
 
     // Persist structured result via provider so the next screen can read it
-        final sr = ScanResult(rawText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
-            structured: Map<String, String>.from(structured.map((k, v) => MapEntry(k, v?.toString() ?? ''))));
-        await ref.read(scanResultProvider.notifier).setResult(sr, persist: true);
+    final sr = ScanResult(rawText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
+      structured: Map<String, String>.from(structured.map((k, v) => MapEntry(k, v?.toString() ?? ''))));
+    // Avoid writing to history here; history is recorded atomically on export
+    await ref.read(scanResultProvider.notifier).setResult(sr, persist: false);
     ref.read(analyticsProvider).track('scan_completed');
 
         Navigator.of(context).pushReplacement(
@@ -208,12 +251,178 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
     } catch (e) {
       // Handle error
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Processing failed: $e')),
-        );
+        await _showErrorWithActions(message: _mapBackendError(e.toString()));
         Navigator.of(context).pop();
       }
     }
+  }
+
+  
+
+  String _mapBackendError(String raw) {
+    // Map common backend statuses to friendly messages
+    if (raw.contains('429') || raw.toLowerCase().contains('rate')) {
+      return 'Too many requests. Please wait a moment and try again.';
+    }
+    if (raw.contains('402') || raw.toLowerCase().contains('quota')) {
+      return 'Monthly quota exceeded. Try again later or adjust usage.';
+    }
+    if (raw.contains('401') || raw.toLowerCase().contains('signature')) {
+      return 'Secure connection validation failed. Please retry.';
+    }
+    if (raw.toLowerCase().contains('timeout')) {
+      return 'The request timed out. Check your internet connection and try again.';
+    }
+    return 'Processing failed. Check your connection and try again.';
+  }
+
+  Future<RecoveryAction> _showConnectivityRecoveryDialog({required String error}) async {
+    final result = await showDialog<RecoveryAction>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Connection Issue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Text(
+                  _mapBackendError(error),
+                  style: TextStyle(color: Colors.black.withOpacity(0.7)),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(RecoveryAction.retry);
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(RecoveryAction.fallback);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1D1D1F),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Use Basic Extraction'),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    return result ?? RecoveryAction.dismiss;
+  }
+
+  Future<RecoveryAction> _showOcrRecoveryDialog() async {
+    return showDialog<RecoveryAction>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) {
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('OCR taking longer than expected', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    Text(
+                      'This can happen on first run while the on-device OCR model downloads. You can retry or continue without OCR.',
+                      style: TextStyle(color: Colors.black.withOpacity(0.7)),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.of(context).pop(RecoveryAction.retry),
+                            child: const Text('Retry OCR'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.of(context).pop(RecoveryAction.fallback),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1D1D1F),
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Skip for now'),
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            );
+          },
+        ).then((v) => v ?? RecoveryAction.dismiss);
+  }
+
+  Future<void> _showErrorWithActions({required String message}) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFFF2F2F7),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(60, 60, 67, 0.3),
+                    borderRadius: BorderRadius.circular(2.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(message, style: const TextStyle(fontSize: 15)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Dismiss'),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // Derive a minimal structured map from raw text when AI output is unavailable.

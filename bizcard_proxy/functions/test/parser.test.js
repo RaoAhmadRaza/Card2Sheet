@@ -27,9 +27,9 @@ describe('parser utilities', () => {
   });
 
   test('extractJsonFromText finds JSON in noisy model output', () => {
-    const noisy = 'Some preface text. {"Name":"John","Email":"john@acme.com"} Some trailing text.';
+    const noisy = 'Some preface text. {"name":"John","email":"john@acme.com"} Some trailing text.';
     const parsed = extractJsonFromText(noisy);
-    expect(parsed).toEqual({ Name: 'John', Email: 'john@acme.com' });
+    expect(parsed).toEqual({ name: 'John', email: 'john@acme.com' });
   });
 
   test('extractJsonFromText returns null on malformed JSON', () => {

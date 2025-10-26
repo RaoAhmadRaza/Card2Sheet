@@ -50,8 +50,21 @@ class ScanHistoryNotifier extends Notifier<List<ScanHistory>> {
   }
 
   Future<void> addHistory(ScanHistory item) async {
+    await _ensureBox();
+    // De-dup: if the most-recent entry matches same name+file within a few seconds, skip
+    final items = _box!.values.toList(growable: false);
+    if (items.isNotEmpty) {
+      final last = items.last;
+      final sameName = last.cardName.trim().toLowerCase() == item.cardName.trim().toLowerCase();
+      final sameFile = last.filePath == item.filePath;
+      final closeInTime = (item.dateTime.difference(last.dateTime).inSeconds).abs() <= 3;
+      if (sameName && sameFile && closeInTime) {
+        return; // likely double-tap or double-call; ignore duplicate
+      }
+    }
     await _box!.add(item);
-    state = [...state, item];
+    // Rely on watcher to reload; also force reload immediately to reflect UI fast
+    _reload();
   }
 
   Future<void> clearHistory() async {

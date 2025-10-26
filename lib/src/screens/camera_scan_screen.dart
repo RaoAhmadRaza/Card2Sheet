@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
-import 'manual_crop_screen.dart';
+// Cropping is invoked inline via ImageCropper for seamless UX
+import 'package:image_cropper/image_cropper.dart';
+// import 'manual_crop_screen.dart';
 import 'processing_screen.dart';
 
 class CameraScanScreen extends StatefulWidget {
@@ -172,16 +174,10 @@ class _CameraScanScreenState extends State<CameraScanScreen>
       // Optional small settle delay to let focus lock
       await Future.delayed(const Duration(milliseconds: 150));
 
-      // Auto-detect temporarily disabled: go straight to manual crop UI
+      // Auto-detect temporarily disabled: open cropper directly (no intermediate screen flicker)
       XFile resulting = image;
-      final edited = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (_) => ManualCropScreen(imagePath: image.path),
-          fullscreenDialog: true,
-        ),
-      );
+      final edited = await _openCropper(image.path);
       if (edited != null) {
-        // Use exactly what the user cropped (no auto processing)
         resulting = XFile(edited);
       }
 
@@ -209,6 +205,14 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   void _useImage() {
     if (_capturedImage != null) {
       final path = _capturedImage!.path;
+      // Validate file existence before navigating
+      final f = File(path);
+      if (!f.existsSync()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Captured image unavailable. Please try again.')),
+        );
+        return;
+      }
       // Navigate to processing screen with the selected image
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -221,12 +225,7 @@ class _CameraScanScreenState extends State<CameraScanScreen>
   Future<void> _adjustCrop() async {
     if (_capturedImage == null) return;
     final currentPath = _capturedImage!.path;
-    final edited = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ManualCropScreen(imagePath: currentPath),
-        fullscreenDialog: true,
-      ),
-    );
+    final edited = await _openCropper(currentPath);
     if (!mounted) return;
     if (edited != null) {
       if (!mounted) return;
@@ -515,8 +514,10 @@ class _CameraScanScreenState extends State<CameraScanScreen>
     return Container(
       padding: const EdgeInsets.all(20),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Left spacer to keep capture centered
+          const SizedBox(width: 80, height: 80),
           // Capture button
           GestureDetector(
             onTap: _captureImage,
@@ -546,6 +547,27 @@ class _CameraScanScreenState extends State<CameraScanScreen>
                         color: Colors.white,
                       ),
                     ),
+            ),
+          ),
+          // Gallery pick button (right side)
+          InkWell(
+            onTap: _pickFromGalleryAndCrop,
+            borderRadius: BorderRadius.circular(40),
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.12),
+                border: Border.all(color: Colors.white24, width: 1),
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.photo_library_outlined,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
             ),
           ),
         ],
@@ -852,6 +874,60 @@ class _CameraScanScreenState extends State<CameraScanScreen>
       }
     } catch (e) {
       debugPrint('Gallery pick failed: $e');
+    }
+  }
+
+  Future<void> _pickFromGalleryAndCrop() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      final path = result?.files.single.path;
+      if (path == null) return;
+      // Crop flow same as capture — open cropper inline
+      final edited = await _openCropper(path);
+      if (!mounted) return;
+      final chosen = edited ?? path;
+      if (!File(chosen).existsSync()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selected image not found.')),
+        );
+        return;
+      }
+      setState(() {
+        _capturedImage = XFile(chosen);
+      });
+    } catch (e) {
+      debugPrint('Gallery pick/crop failed: $e');
+    }
+  }
+
+  // Open the native/ImageCropper UI directly without a wrapper route.
+  Future<String?> _openCropper(String path) async {
+    try {
+      final cropper = ImageCropper();
+      final CroppedFile? cropped = await cropper.cropImage(
+        sourcePath: path,
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 95,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Adjust Crop',
+            toolbarColor: Colors.black,
+            toolbarWidgetColor: Colors.white,
+            activeControlsWidgetColor: Colors.teal,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(
+            title: 'Adjust Crop',
+            aspectRatioLockEnabled: false,
+          ),
+          WebUiSettings(context: context),
+        ],
+      );
+      return cropped?.path;
+    } catch (e) {
+      debugPrint('Cropper error: $e');
+      return null;
     }
   }
 }

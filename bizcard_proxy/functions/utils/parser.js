@@ -1,5 +1,6 @@
 // Unified parser/sanitization helpers for the proxy
 // Exports one source of truth to avoid drift between files and tests.
+const { z } = require('zod');
 
 const MAX_RAW_TEXT_LEN = process.env.MAX_RAW_TEXT_LEN ? parseInt(process.env.MAX_RAW_TEXT_LEN, 10) : 4000; // characters
 const MAX_TEMPLATE_HEADERS = process.env.MAX_TEMPLATE_HEADERS ? parseInt(process.env.MAX_TEMPLATE_HEADERS, 10) : 40;
@@ -62,17 +63,23 @@ function estimateTokens(str) {
 
 function extractJsonFromText(text) {
   if (!text) return null;
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) {
-    const jsonString = text.substring(start, end + 1);
-    try {
-      return JSON.parse(jsonString);
-    } catch (e) {
-      return null;
-    }
+  // Schema-enforced extraction: match the first JSON object and validate
+  const cardSchema = z.object({
+    name: z.string().optional(),
+    email: z.string().email().optional(),
+    phone: z.string().optional(),
+    company: z.string().optional(),
+    address: z.string().optional(),
+  });
+
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    return cardSchema.parse(parsed);
+  } catch (_) {
+    return null;
   }
-  return null;
 }
 
 function safeJsonParse(str, fallback = null) {

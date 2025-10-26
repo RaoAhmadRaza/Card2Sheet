@@ -53,6 +53,15 @@ class HistoryNotifier extends Notifier<List<HistoryItem>> {
     });
   }
 
+  String _signatureOf(Map<String, String> structured) {
+    // Build a stable signature independent of key order and trivial whitespace
+    final entries = structured.entries
+        .map((e) => MapEntry(e.key.trim().toLowerCase(), (e.value).trim()))
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return entries.map((e) => '${e.key}=${e.value}').join('|');
+  }
+
   Future<void> addFromScan(ScanResult result) async {
     // Determine destination from current sheet selection or fallback to session
     final sheet = ref.read(sheetProvider);
@@ -60,12 +69,40 @@ class HistoryNotifier extends Notifier<List<HistoryItem>> {
     dest ??= ref.read(sessionProvider).lastDestination;
 
     dest ??= SheetDestination(type: SheetType.csv, path: '');
+    final now = DateTime.now();
+
+    // De-dupe: if the most recent item has the same structured data and destination
+    // within a short window, update it instead of adding a new entry.
+    if (state.isNotEmpty) {
+      final latest = state.first;
+      final sameStruct = _signatureOf(latest.structured) == _signatureOf(result.structured);
+      final sameDest = latest.destination.type == dest.type &&
+          (latest.destination.path == dest.path) &&
+          (latest.destination.sheetName == dest.sheetName);
+      final withinWindow = now.difference(latest.timestamp).inSeconds.abs() <= 15;
+
+      if (sameStruct && withinWindow) {
+        // Prefer updating destination if the new one is more specific (non-empty path)
+        final updated = latest.copyWith(
+          destination: sameDest ? latest.destination : dest,
+          timestamp: now,
+        );
+        // Persist update
+        await _write(updated);
+        // Update state in-place
+        final next = [...state];
+        next[0] = updated;
+        state = next;
+        return;
+      }
+    }
+
     final item = HistoryItem(
       id: _uuid.v4(),
       structured: result.structured,
       destination: dest,
       rowIndex: -1,
-      timestamp: DateTime.now(),
+      timestamp: now,
     );
     // Optimistic UI update
     final prev = state;

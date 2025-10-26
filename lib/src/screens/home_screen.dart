@@ -1,13 +1,16 @@
 import 'dart:ui';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../core/routes.dart';
-import '../../core/providers/result_provider.dart';
 import '../../core/preferences.dart';
 import 'camera_scan_screen.dart';
+import '../providers/history_provider.dart';
+import '../models/history_item.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +29,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
   }
 
   // Mock data for demonstration - in real app this would come from database
@@ -102,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: const Color(0xFF1D1D1F),
                       ),
                     ),
+                    // Open Sheet button (kept)
                     GestureDetector(
                       onTapDown: (_) => setState(() => _isOpenSheetHovered = true),
                       onTapUp: (_) => setState(() => _isOpenSheetHovered = false),
@@ -239,9 +248,14 @@ class _HomeScreenState extends State<HomeScreen> {
               
               const SizedBox(height: 20),
               
-              // Cards List
+              // Main content: sections in a single scroll view
               Expanded(
-                child: _buildCardsList(),
+                child: Consumer(
+                  builder: (context, ref, _) {
+                    final history = ref.watch(historyProvider);
+                    return _buildHomeSections(history);
+                  },
+                ),
               ),
             ],
           ),
@@ -371,62 +385,184 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Removed export options UI as we now directly open latest sheet via system chooser
+  // Build new split sections for Recent Scans and Sample Cards
+  Widget _buildHomeSections(List<HistoryItem> historyItems) {
+    // Prepare lists based on search
+    final searchLower = _searchQuery.toLowerCase();
+    final hasQuery = _searchQuery.isNotEmpty;
 
-  Widget _buildCardsList() {
-    final last = ScanResultStore.instance.state;
-    
-    // Collect all cards data
-    List<Map<String, String>> allCards = [];
-    
-    // Add real scanned result if exists
-    if (last.aiResult != null) {
-      allCards.add({
-        'name': last.aiResult?['Name']?.toString() ?? 'Unknown',
-        'company': last.aiResult?['Company']?.toString() ?? 'Unknown Company',
-        'position': last.aiResult?['Designation']?.toString() ?? 'Unknown Position',
-        'status': 'Latest',
-        'avatar': _getInitials(last.aiResult?['Name']?.toString() ?? 'U'),
-        'isReal': 'true',
-      });
+    // Build a unique list of recent items (newest-first), collapsing duplicates
+    // by a stable key (prefer name/email; fallback to normalized structured map)
+    final seen = <String>{};
+    final uniqueRecent = <HistoryItem>[];
+    for (final h in historyItems) { // historyItems already newest-first
+      final key = _historyKey(h);
+      if (key.isEmpty) continue;
+      if (seen.contains(key)) continue;
+      seen.add(key);
+      uniqueRecent.add(h);
     }
-    
-    // Add mock cards
-    allCards.addAll(_mockCards.map((card) => {
-      ...card,
-      'isReal': 'false',
-    }));
-    
-    // Filter cards based on search query
-    if (_searchQuery.isNotEmpty) {
-      allCards = allCards.where((card) {
-        final searchLower = _searchQuery.toLowerCase();
+
+    // Apply search to display name
+    List<HistoryItem> recent = uniqueRecent;
+    if (hasQuery) {
+      recent = recent
+          .where((h) => _displayName(h).toLowerCase().contains(searchLower))
+          .toList(growable: false);
+    }
+
+    // Filter sample cards
+    List<Map<String, String>> samples = _mockCards;
+    if (hasQuery) {
+      samples = samples.where((card) {
         return card['name']!.toLowerCase().contains(searchLower) ||
-               card['company']!.toLowerCase().contains(searchLower) ||
-               card['position']!.toLowerCase().contains(searchLower);
+            card['company']!.toLowerCase().contains(searchLower) ||
+            card['position']!.toLowerCase().contains(searchLower);
       }).toList();
     }
-    
-    if (allCards.isEmpty) {
-      return _buildEmptyState();
-    }
-    
-    return ListView.builder(
+
+    final hasAny = recent.isNotEmpty || (kDebugMode && samples.isNotEmpty);
+    if (!hasAny) return _buildEmptyState();
+
+    return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      itemCount: allCards.length,
-      itemBuilder: (context, index) {
-        final card = allCards[index];
-        return _buildCardItem(
-          name: card['name']!,
-          company: card['company']!,
-          position: card['position']!,
-          status: card['status']!,
-          avatar: card['avatar']!,
-          isReal: card['isReal'] == 'true',
-        );
-      },
+      children: [
+
+        // Recent list
+        if (recent.isNotEmpty)
+          Column(
+            children: recent.take(10).map((h) => _buildHistoryItem(h)).toList(),
+          )
+        else
+          _buildSectionHint('Your saved scans will appear here after export'),
+
+        const SizedBox(height: 16),
+
+        // Sample Cards (debug only)
+        if (kDebugMode) ...[
+          _sectionHeader(title: 'Sample Cards'),
+          ...samples.map((card) => _buildCardItem(
+                name: card['name']!,
+                company: card['company']!,
+                position: card['position']!,
+                status: card['status']!,
+                avatar: card['avatar']!,
+                isReal: false,
+              )),
+        ],
+        const SizedBox(height: 12),
+      ],
     );
   }
+
+  Widget _sectionHeader({required String title, Widget? action}) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0, bottom: 12.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF1D1D1F),
+            ),
+          ),
+          if (action != null)
+            Theme(
+              data: Theme.of(context).copyWith(
+                textButtonTheme: TextButtonThemeData(
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF1D1D1F),
+                  ),
+                ),
+              ),
+              child: action,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHint(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Text(
+        text,
+        style: GoogleFonts.inter(
+          fontSize: 13,
+          color: const Color(0xFF1D1D1F).withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryItem(HistoryItem h) {
+    // Show a clean card like samples: name + optional company/position from structured map
+    final status = _statusFor(h);
+    return _buildCardItem(
+      name: _displayName(h),
+      company: _firstNonEmpty(h.structured, const ['company', 'organization', 'org', 'employer', 'Company']),
+      position: _firstNonEmpty(h.structured, const ['designation', 'title', 'role', 'position', 'job_title', 'Designation']),
+      status: status,
+      avatar: _getInitials(_displayName(h)),
+      isReal: false,
+    );
+  }
+
+  
+
+  String _displayName(HistoryItem h) {
+    final s = h.structured;
+    final name = _firstNonEmpty(s, const ['name', 'full_name', 'Name']);
+    if (name.isNotEmpty) return name;
+    // Fallback to something readable if name missing
+    return s['email'] ?? 'Unknown';
+  }
+
+  // Build a de-dupe key for a history item: prefer name/email; else a normalized signature
+  String _historyKey(HistoryItem h) {
+    final s = h.structured;
+    // Prefer email if present (most specific)
+    final email = _firstNonEmpty(s, const ['email', 'Email']);
+    if (email.isNotEmpty) return 'email:${email.trim().toLowerCase()}';
+    // Next prefer name + company combo to reduce collisions for common names
+    final name = _firstNonEmpty(s, const ['name', 'full_name', 'Name']);
+    if (name.isNotEmpty) {
+      final company = _firstNonEmpty(s, const ['company', 'organization', 'org', 'employer', 'Company']);
+      if (company.isNotEmpty) {
+        return 'name:${name.trim().toLowerCase()}|company:${company.trim().toLowerCase()}';
+      }
+      return 'name:${name.trim().toLowerCase()}';
+    }
+    // Fallback: normalized map signature
+    final entries = s.entries
+        .map((e) => MapEntry(e.key.trim().toLowerCase(), e.value.trim()))
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return entries.map((e) => '${e.key}=${e.value}').join('|');
+  }
+
+  String _firstNonEmpty(Map<String, String> map, List<String> keys) {
+    for (final k in keys) {
+      final v = map[k] ?? map[k.toLowerCase()];
+      if (v != null && v.trim().isNotEmpty) return v.trim();
+    }
+    return '';
+  }
+
+  // Compute status label based on timestamp age
+  // New: <= 2 hours; Recent: > 2 hours and <= 12 hours; else: ''
+  String _statusFor(HistoryItem h) {
+    final now = DateTime.now();
+    final diff = now.difference(h.timestamp);
+    if (diff.inMinutes <= 120) return 'New';
+    if (diff.inHours <= 12) return 'Recent';
+    return '';
+  }
+
+  // Removed filename/time helpers since Recent cards no longer display these details
 
   Widget _buildCardItem({
     required String name,
@@ -506,24 +642,28 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: const Color(0xFF1D1D1F),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    company,
-                    style: GoogleFonts.inter(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
+                  if (company.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      company,
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    position,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w400,
-                      color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
+                  ],
+                  if (position.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      position,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                        color: const Color(0xFF1D1D1F).withValues(alpha: 0.6),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

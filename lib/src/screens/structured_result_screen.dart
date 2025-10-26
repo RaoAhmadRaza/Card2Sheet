@@ -35,9 +35,11 @@ class StructuredResultScreen extends ConsumerStatefulWidget {
 class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen> {
   late Map<String, String> _editableData;
   bool _isEditing = false;
+  bool _isSaving = false;
   String? _editingField;
   late TextEditingController _editController;
   late FocusNode _editFocusNode;
+  late TextEditingController _notesController;
 
   // Common business card fields in display order
   final List<String> _displayFields = [
@@ -57,6 +59,7 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
     super.initState();
     _editController = TextEditingController();
     _editFocusNode = FocusNode();
+    _notesController = TextEditingController();
     _initializeEditableData();
   }
 
@@ -64,6 +67,7 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
   void dispose() {
     _editController.dispose();
     _editFocusNode.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
@@ -173,6 +177,8 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
   }
 
   Future<void> _saveToSpreadsheet() async {
+    if (_isSaving) return; // single-flight guard
+    setState(() => _isSaving = true);
     HapticFeedback.heavyImpact();
     // Use provider-driven selection but offer a picker if not set
     final sheetState = ref.read(sheetProvider);
@@ -249,17 +255,23 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
     if (path == null || path.isEmpty) return; // still no selection
 
     try {
+      // Prepare data with optional personal thoughts
+      final data = Map<String, String>.from(_editableData);
+      final notes = _notesController.text.trim();
+      if (notes.isNotEmpty) {
+        data['personal_thoughts'] = notes;
+      }
       // Persist via providers (debounced save) using values-only export
-      await ref.read(sheetProvider.notifier).saveEntryDebounced(_editableData,
+      await ref.read(sheetProvider.notifier).saveEntryDebounced(data,
           destination: SheetDestination(
             type: type == 'xlsx' ? SheetType.xlsx : SheetType.csv,
             path: path,
             sheetName: sheetName,
-            templateHeaders: _orderedHeaders(),
+            templateHeaders: _orderedHeaders(includeNotes: notes.isNotEmpty),
           ));
       ref.read(analyticsProvider).track(
         type == 'xlsx' ? 'exported_to_xlsx' : 'exported_to_csv',
-        props: {'fields': _editableData.length},
+        props: {'fields': data.length, 'has_notes': notes.isNotEmpty},
       );
       // Demo/tutorial: also record a minimal ScanHistory entry in a separate box
       final cardName = _editableData['name']?.trim().isNotEmpty == true
@@ -282,6 +294,8 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
       );
     } catch (e) {
       _showError('Failed to append: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -295,7 +309,7 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
     final docs = await getApplicationDocumentsDirectory();
     final file = File('${docs.path}/Card2Sheet_Default.csv');
     if (!(await file.exists())) {
-      final headers = _orderedHeaders().map(_getDisplayLabel).toList();
+      final headers = _orderedHeaders(includeNotes: _notesController.text.trim().isNotEmpty).map(_getDisplayLabel).toList();
       final csv = const ListToCsvConverter().convert([headers]);
       await file.writeAsString(csv);
     }
@@ -305,13 +319,16 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
 
   // Build ordered headers: common fields first, then any extras
   // Build ordered headers: common fields first, then any extras
-  List<String> _orderedHeaders() {
+  List<String> _orderedHeaders({bool includeNotes = false}) {
     final headers = <String>[];
     for (final field in _displayFields) {
       if (_editableData.containsKey(field)) headers.add(field);
     }
     for (final key in _editableData.keys) {
       if (!headers.contains(key)) headers.add(key);
+    }
+    if (includeNotes && !headers.contains('personal_thoughts')) {
+      headers.add('personal_thoughts');
     }
     return headers;
   }
@@ -571,6 +588,88 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
                   ),
                 ],
                 
+                // Personal thoughts (Optional)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFFFF),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Personal thoughts',
+                            style: TextStyle(
+                              fontFamily: '.SF Pro Text',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF111111),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Color(0xFFF2F2F7),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Text(
+                              'Optional',
+                              style: TextStyle(
+                                fontFamily: '.SF Pro Text',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF8E8E93),
+                              ),
+                            ),
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _notesController,
+                        minLines: 2,
+                        maxLines: 4,
+                        style: const TextStyle(
+                          fontFamily: '.SF Pro Text',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w400,
+                          color: Color(0xFF111111),
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'Add any notes about this contact…',
+                          hintStyle: TextStyle(
+                            fontFamily: '.SF Pro Text',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w400,
+                            color: const Color(0xFF1D1D1F).withValues(alpha: 0.35),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFDDDDDF), width: 1),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Color(0xFFBBBBBF), width: 1),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
                 // Save Button
                 Container(
                   decoration: BoxDecoration(
@@ -600,7 +699,7 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: ElevatedButton(
-                        onPressed: _saveToSpreadsheet,
+                        onPressed: _isSaving ? null : _saveToSpreadsheet,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent, // Transparent to show gradient
                           foregroundColor: Colors.white, // white text
@@ -611,9 +710,9 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
                           ),
                           padding: EdgeInsets.zero,
                         ),
-                        child: const Text(
-                          'Save to Spreadsheet',
-                          style: TextStyle(
+                        child: Text(
+                          _isSaving ? 'Saving…' : 'Save to Spreadsheet',
+                          style: const TextStyle(
                             fontFamily: '.SF Pro Text', // SF Pro Text
                             fontSize: 16, // Medium, 16pt
                             fontWeight: FontWeight.w500, // Medium weight
