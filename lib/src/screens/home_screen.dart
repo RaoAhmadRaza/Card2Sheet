@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/routes.dart';
 import '../../core/preferences.dart';
 import 'camera_scan_screen.dart';
+import 'card_detail_screen.dart';
 import '../providers/history_provider.dart';
 import '../models/history_item.dart';
 
@@ -21,7 +22,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _isPressed = false;
-  bool _isOpenSheetHovered = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
@@ -36,233 +36,112 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
   }
 
-  // Mock data for demonstration - in real app this would come from database
-  final List<Map<String, String>> _mockCards = [
-    {
-      'name': 'Ethan Carter',
-      'company': 'Acme Corp',
-      'position': 'Marketing Director',
-      'status': 'New',
-      'avatar': 'EC'
-    },
-    {
-      'name': 'Sophia Bennett',
-      'company': 'Tech Solutions Inc.',
-      'position': 'Lead Developer',
-      'status': 'Recent',
-      'avatar': 'SB'
-    },
-    {
-      'name': 'Liam Harper',
-      'company': 'Global Innovations',
-      'position': 'Product Manager',
-      'status': '',
-      'avatar': 'LH'
-    },
-    {
-      'name': 'Olivia Hayes',
-      'company': 'Digital Dynamics',
-      'position': 'UI/UX Designer',
-      'status': '',
-      'avatar': 'OH'
-    },
-    {
-      'name': 'Noah Foster',
-      'company': 'Future Tech',
-      'position': 'AI Specialist',
-      'status': '',
-      'avatar': 'NF'
-    },
-    {
-      'name': 'Ava Morgan',
-      'company': 'Innovate Solutions',
-      'position': 'CEO',
-      'status': '',
-      'avatar': 'AM'
-    },
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFF9F9FA), Color(0xFFF2F2F7)],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'My Cards',
-                      style: GoogleFonts.poppins(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w600,
+      backgroundColor: const Color(0xFFF2F2F7),
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'My Cards',
+                    style: GoogleFonts.poppins(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1D1D1F),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _openLatestSheet,
+                    icon: const Icon(Icons.table_chart_outlined, size: 18),
+                    label: Text(
+                      'Open Sheet',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
                         color: const Color(0xFF1D1D1F),
                       ),
                     ),
-                    // Open Sheet button (kept)
-                    GestureDetector(
-                      onTapDown: (_) => setState(() => _isOpenSheetHovered = true),
-                      onTapUp: (_) => setState(() => _isOpenSheetHovered = false),
-                      onTapCancel: () => setState(() => _isOpenSheetHovered = false),
-                      onTap: _openLatestSheet,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeInOut,
-                        padding: EdgeInsets.symmetric(
-                          horizontal: _isOpenSheetHovered ? 14 : 16,
-                          vertical: _isOpenSheetHovered ? 7 : 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _isOpenSheetHovered 
-                            ? const Color(0xFF2C2C2E).withValues(alpha: 0.1)
-                            : Colors.transparent,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _isOpenSheetHovered 
-                              ? const Color(0xFF2C2C2E).withValues(alpha: 0.2)
-                              : Colors.transparent,
-                            width: 1,
-                          ),
-                        ),
-                        child: AnimatedScale(
-                          scale: _isOpenSheetHovered ? 0.95 : 1.0,
-                          duration: const Duration(milliseconds: 200),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              AnimatedRotation(
-                                turns: _isOpenSheetHovered ? 0.05 : 0.0,
-                                duration: const Duration(milliseconds: 200),
-                                child: Icon(
-                                  Icons.table_chart_outlined,
-                                  size: 18,
-                                  color: const Color(0xFF1D1D1F),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              AnimatedDefaultTextStyle(
-                                duration: const Duration(milliseconds: 200),
-                                style: GoogleFonts.inter(
-                                  fontSize: _isOpenSheetHovered ? 15.5 : 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: const Color(0xFF1D1D1F),
-                                ),
-                                child: const Text('Open Sheet'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF1D1D1F),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Search bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
-              ),
-              
-              // Search Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.06),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.8),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: TextField(
-                          controller: _searchController,
-                          onChanged: (value) {
-                            setState(() {
-                              _searchQuery = value;
-                            });
-                          },
-                          decoration: InputDecoration(
-                            hintText: 'Search cards...',
-                            hintStyle: GoogleFonts.inter(
-                              fontSize: 16,
-                              color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
-                            ),
-                            prefixIcon: Icon(
-                              Icons.search_outlined,
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                  decoration: InputDecoration(
+                    hintText: 'Search cards...',
+                    hintStyle: GoogleFonts.inter(
+                      fontSize: 16,
+                      color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_outlined,
+                      color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
+                      size: 20,
+                    ),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                            icon: Icon(
+                              Icons.clear,
                               color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
                               size: 20,
                             ),
-                            suffixIcon: _searchQuery.isNotEmpty
-                                ? GestureDetector(
-                                    onTap: () {
-                                      _searchController.clear();
-                                      setState(() {
-                                        _searchQuery = '';
-                                      });
-                                    },
-                                    child: Icon(
-                                      Icons.clear,
-                                      color: const Color(0xFF8E8E93).withValues(alpha: 0.55),
-                                      size: 20,
-                                    ),
-                                  )
-                                : null,
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 16,
-                            ),
-                          ),
-                          style: GoogleFonts.inter(
-                            fontSize: 16,
-                            color: const Color(0xFF1D1D1F),
-                          ),
-                        ),
-                      ),
-                    ),
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   ),
+                  style: GoogleFonts.inter(fontSize: 16, color: const Color(0xFF1D1D1F)),
                 ),
               ),
-              
-              const SizedBox(height: 20),
-              
-              // Main content: sections in a single scroll view
-              Expanded(
-                child: Consumer(
-                  builder: (context, ref, _) {
-                    final history = ref.watch(historyProvider);
-                    return _buildHomeSections(history);
-                  },
-                ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Main content
+            Expanded(
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final history = ref.watch(historyProvider);
+                  return _buildHomeSections(history);
+                },
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-      
-      // Glassmorphic Floating Action Button
       floatingActionButton: Listener(
         onPointerDown: (_) => setState(() => _isPressed = true),
         onPointerUp: (_) => setState(() => _isPressed = false),
@@ -412,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // Filter sample cards
-    List<Map<String, String>> samples = _mockCards;
+  List<Map<String, String>> samples = [];
     if (hasQuery) {
       samples = samples.where((card) {
         return card['name']!.toLowerCase().contains(searchLower) ||
@@ -501,13 +380,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHistoryItem(HistoryItem h) {
     // Show a clean card like samples: name + optional company/position from structured map
     final status = _statusFor(h);
+    final heroTag = 'avatar_${h.timestamp.millisecondsSinceEpoch}';
+    
     return _buildCardItem(
       name: _displayName(h),
       company: _firstNonEmpty(h.structured, const ['company', 'organization', 'org', 'employer', 'Company']),
       position: _firstNonEmpty(h.structured, const ['designation', 'title', 'role', 'position', 'job_title', 'Designation']),
       status: status,
       avatar: _getInitials(_displayName(h)),
-      isReal: false,
+      isReal: true, // Set to true so it can be tapped
+      heroTag: heroTag,
+      historyItem: h,
     );
   }
 
@@ -571,6 +454,8 @@ class _HomeScreenState extends State<HomeScreen> {
     required String status,
     required String avatar,
     bool isReal = false,
+    String? heroTag,
+    HistoryItem? historyItem,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -590,8 +475,16 @@ class _HomeScreenState extends State<HomeScreen> {
         scale: 1.0,
         duration: const Duration(milliseconds: 100),
         child: InkWell(
-          onTap: isReal 
-            ? () => Navigator.of(context).pushNamed(AppRoutes.result)
+          onTap: isReal && historyItem != null 
+            ? () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CardDetailScreen(
+                    historyItem: historyItem,
+                    heroTag: heroTag ?? 'avatar_default',
+                  ),
+                ),
+              )
             : null,
           borderRadius: BorderRadius.circular(20),
           splashColor: const Color(0xFF2C2C2E).withValues(alpha: 0.08),
@@ -600,32 +493,31 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(4.0),
             child: Row(
               children: [
-                // Enhanced Avatar with Gradient
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    gradient: _getAvatarGradient(avatar),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.12),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      avatar,
-                      style: GoogleFonts.inter(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
+                // Enhanced Avatar with Hero Animation (buttery smooth)
+                heroTag != null
+                    ? Hero(
+                        tag: heroTag,
+                        transitionOnUserGestures: true,
+                        createRectTween: (begin, end) =>
+                            MaterialRectCenterArcTween(begin: begin!, end: end!),
+                        flightShuttleBuilder: (
+                          flightContext,
+                          animation,
+                          direction,
+                          fromContext,
+                          toContext,
+                        ) {
+                          const beginSize = 56.0;
+                          const endSize = 120.0;
+                          final t = Curves.easeInOutCubic.transform(animation.value);
+                          final size = direction == HeroFlightDirection.push
+                              ? beginSize + (endSize - beginSize) * t
+                              : endSize + (beginSize - endSize) * t;
+                          return _buildAvatarCircle(avatar, size);
+                        },
+                        child: _buildAvatarCircle(avatar, 56),
+                      )
+                    : _buildAvatarCircle(avatar, 56),
             
             const SizedBox(width: 16),
             
@@ -761,6 +653,42 @@ class _HomeScreenState extends State<HomeScreen> {
       colors: [Color(0xFFF9F9FA), Color(0xFFF2F2F7)],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
+    );
+  }
+
+  Widget _buildAvatarCircle(String initials, double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: _getAvatarGradient(initials),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 8 * (size / 56.0),
+            offset: Offset(0, 4 * (size / 56.0)),
+          ),
+        ],
+      ),
+      child: Center(
+        child: RepaintBoundary(
+          child: Text(
+            initials,
+            style: GoogleFonts.inter(
+              fontSize: 18 * (size / 56.0),
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              decoration: TextDecoration.none,
+              decorationColor: Colors.transparent,
+            ),
+            textHeightBehavior: const TextHeightBehavior(
+              applyHeightToFirstAscent: false,
+              applyHeightToLastDescent: false,
+            ),
+          ),
+        ),
+      ),
     );
   }
 

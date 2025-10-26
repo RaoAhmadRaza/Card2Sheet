@@ -57,6 +57,7 @@ dependencies:
   http: ^1.2.2
   crypto: ^3.0.3
   url_launcher: ^6.1.12
+  android_intent_plus: ^5.2.0
   opencv_card_cropper:
     path: ./opencv_card_cropper
   image_cropper: ^11.0.0
