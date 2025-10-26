@@ -17,6 +17,7 @@ import '../models/sheet_destination.dart';
 import '../services/analytics_service.dart';
 import '../providers/scan_history_simple_provider.dart';
 import '../models/scan_history.dart';
+import '../utils/schema.dart';
 
 class StructuredResultScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? structuredData;
@@ -41,18 +42,8 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
   late FocusNode _editFocusNode;
   late TextEditingController _notesController;
 
-  // Common business card fields in display order
-  final List<String> _displayFields = [
-    'name',
-    'company',
-    'email',
-    'phone',
-    'website',
-    'address',
-    'title',
-    'position',
-    'job_title',
-  ];
+  // Strict internal keys in fixed order (7 fields)
+  final List<String> _displayFields = List<String>.from(kStrictKeys);
 
   @override
   void initState() {
@@ -75,23 +66,13 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
     _editableData = <String, String>{};
     final provided = widget.structuredData;
     if (provided != null && provided.isNotEmpty) {
-      for (final entry in provided.entries) {
-        final value = entry.value;
-        if (value != null && value.toString().trim().isNotEmpty) {
-          _editableData[entry.key.toLowerCase().replaceAll(' ', '_')] = value.toString();
-        }
-      }
+      _editableData = normalizeToStrictSchema(Map<String, dynamic>.from(provided));
       return;
     }
     // Fallback: load from provider
     final sr = ref.read(scanResultProvider);
     if (sr != null) {
-      for (final entry in sr.structured.entries) {
-        final value = entry.value;
-        if (value.toString().trim().isNotEmpty) {
-          _editableData[entry.key.toLowerCase().replaceAll(' ', '_')] = value.toString();
-        }
-      }
+      _editableData = normalizeToStrictSchema(sr.structured);
     }
   }
 
@@ -99,6 +80,8 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
     switch (key.toLowerCase()) {
       case 'name':
         return 'Name';
+      case 'designation':
+        return 'Designation';
       case 'company':
         return 'Company';
       case 'email':
@@ -109,10 +92,6 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
         return 'Website';
       case 'address':
         return 'Address';
-      case 'title':
-      case 'position':
-      case 'job_title':
-        return 'Title';
       default:
         return key.split('_').map((word) => word[0].toUpperCase() + word.substring(1)).join(' ');
     }
@@ -309,7 +288,7 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
     final docs = await getApplicationDocumentsDirectory();
     final file = File('${docs.path}/Card2Sheet_Default.csv');
     if (!(await file.exists())) {
-      final headers = _orderedHeaders(includeNotes: _notesController.text.trim().isNotEmpty).map(_getDisplayLabel).toList();
+      final headers = _orderedHeaders(includeNotes: _notesController.text.trim().isNotEmpty);
       final csv = const ListToCsvConverter().convert([headers]);
       await file.writeAsString(csv);
     }
@@ -320,17 +299,8 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
   // Build ordered headers: common fields first, then any extras
   // Build ordered headers: common fields first, then any extras
   List<String> _orderedHeaders({bool includeNotes = false}) {
-    final headers = <String>[];
-    for (final field in _displayFields) {
-      if (_editableData.containsKey(field)) headers.add(field);
-    }
-    for (final key in _editableData.keys) {
-      if (!headers.contains(key)) headers.add(key);
-    }
-    if (includeNotes && !headers.contains('personal_thoughts')) {
-      headers.add('personal_thoughts');
-    }
-    return headers;
+    // Return fixed display headers for exports/templates
+    return defaultExportHeaders(includeNotes: includeNotes);
   }
 
   // Removed header-detection helpers since we now write values-only rows

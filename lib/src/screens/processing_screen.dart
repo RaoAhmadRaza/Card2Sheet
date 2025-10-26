@@ -9,6 +9,7 @@ import 'structured_result_screen.dart';
 import '../models/scan_result.dart';
 import '../providers/scan_result_provider.dart';
 import '../services/analytics_service.dart';
+import '../utils/schema.dart';
 
 enum RecoveryAction { retry, fallback, dismiss }
 
@@ -218,15 +219,19 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
         // Always navigate to the StructuredResultScreen. If AI output is empty
         // (e.g., no API key/proxy configured), derive a minimal structured map
         // so the new screen still appears instead of the legacy text screen.
-        final structured = result.finalJson.isNotEmpty
+        final rawStructured = result.finalJson.isNotEmpty
             ? result.finalJson
             : _deriveFallbackStructuredData(
                 result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
               );
 
+        // Normalize to strict 7-field schema with 'NONE' fillers
+        final normalized = normalizeToStrictSchema(rawStructured);
+
     // Persist structured result via provider so the next screen can read it
-    final sr = ScanResult(rawText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
-      structured: Map<String, String>.from(structured.map((k, v) => MapEntry(k, v?.toString() ?? ''))));
+    final sr = ScanResult(
+        rawText: result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
+        structured: normalized);
     // Avoid writing to history here; history is recorded atomically on export
     await ref.read(scanResultProvider.notifier).setResult(sr, persist: false);
     ref.read(analyticsProvider).track('scan_completed');

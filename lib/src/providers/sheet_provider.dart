@@ -2,6 +2,7 @@ import 'package:riverpod/riverpod.dart';
 import '../models/sheet_destination.dart';
 import 'dart:async';
 import '../services/persistence_coordinator.dart';
+import '../utils/schema.dart';
 
 class SheetState {
   final SheetType type;
@@ -44,8 +45,10 @@ final sheetProvider = NotifierProvider<SheetNotifier, SheetState>(
 class SheetNotifier extends Notifier<SheetState> {
   Timer? _debounceTimer;
   @override
-  SheetState build() =>
-      const SheetState(type: SheetType.csv, headers: ['Name', 'Company', 'Email']);
+  SheetState build() => SheetState(
+        type: SheetType.csv,
+        headers: List<String>.from(kStrictHeaderLabels),
+      );
 
   void setType(SheetType t) =>
     state = SheetState(type: t, filePath: state.filePath, headers: state.headers);

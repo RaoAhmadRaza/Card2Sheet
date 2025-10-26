@@ -36,4 +36,14 @@ class CSVService {
     final updated = const ListToCsvConverter().convert(rows);
     await csvFile.writeAsString(updated);
   }
+
+  /// Append a row using a pre-ordered list of values (aligned with header order).
+  Future<void> appendRowValues(File csvFile, List<dynamic> values) async {
+    final content = await csvFile.readAsString();
+    final List<List<dynamic>> rows = const CsvToListConverter().convert(content);
+    rows.add(values);
+
+    final updated = const ListToCsvConverter().convert(rows);
+    await csvFile.writeAsString(updated);
+  }
 }

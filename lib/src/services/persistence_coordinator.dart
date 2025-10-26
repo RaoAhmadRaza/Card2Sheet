@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:riverpod/riverpod.dart';
+import 'package:csv/csv.dart';
 
 import '../models/sheet_destination.dart';
 import '../models/scan_result.dart';
@@ -8,6 +9,7 @@ import '../providers/history_provider.dart';
 import '../providers/session_provider.dart';
 import 'csv_service.dart';
 import 'xlsx_service.dart';
+import '../utils/schema.dart';
 
 /// Orchestrates atomic persistence across file + history + session updates.
 class PersistenceCoordinator {
@@ -25,6 +27,12 @@ class PersistenceCoordinator {
     List<int>? originalBytes;
 
     try {
+      // Normalize incoming map to strict schema and include notes if present
+      final normalized = normalizeToStrictSchema(structured);
+      final desiredHeaders = (destination.templateHeaders.isNotEmpty)
+          ? destination.templateHeaders
+          : defaultExportHeaders(includeNotes: normalized.containsKey(kNotesKey) && normalized[kNotesKey]!.trim().isNotEmpty);
+
       switch (destination.type) {
         case SheetType.csv:
           file = File(destination.path);
@@ -32,16 +40,21 @@ class PersistenceCoordinator {
             originalBytes = await file.readAsBytes();
           }
           final csvService = CSVService();
-          // Append values-only row (no headers)
-          // Build a row that aligns with ordering of keys in `structured`
-          final row = <String, dynamic>{ for (final e in structured.entries) e.key: e.value };
+          // Determine header order (existing file header takes precedence)
+          List<String> headerOrder = desiredHeaders;
           if (await file.exists()) {
-            await csvService.appendRow(file, row);
+            final existing = await csvService.extractHeaders(file);
+            if (existing.isNotEmpty) {
+              headerOrder = existing;
+            }
           } else {
-            // Create new CSV with a single row and no header
             await file.create(recursive: true);
-            await file.writeAsString('${structured.values.join(',')}\n');
+            final headerCsv = const ListToCsvConverter().convert([headerOrder]);
+            await file.writeAsString(headerCsv);
           }
+          // Build row values aligned with header order
+          final values = valuesForHeaders(headerOrder, normalized);
+          await csvService.appendRowValues(file, values);
           break;
         case SheetType.xlsx:
           // For xlsx, we need to append a row to an existing sheet or create a new one
@@ -51,7 +64,8 @@ class PersistenceCoordinator {
           // For now, we create new file if not exists; otherwise, we delegate to UI-level append logic.
           file = File(destination.path);
           if (!await file.exists()) {
-            final temp = await xlsxService.saveAsXlsx(structured);
+            final values = valuesForHeaders(desiredHeaders, normalized);
+            final temp = await xlsxService.saveRowToNewXlsx(desiredHeaders, values, sheetName: destination.sheetName ?? 'Sheet1');
             await temp.copy(destination.path);
             file = File(destination.path);
           } else {
@@ -61,7 +75,7 @@ class PersistenceCoordinator {
       }
 
       // Record in history
-      final result = ScanResult(rawText: '', structured: structured);
+      final result = ScanResult(rawText: '', structured: normalized);
       await ref.read(historyProvider.notifier).addFromScan(result);
 
       // Update session last destination
