@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'local_trust_service.dart';
 import 'request_signer.dart';
 import 'session_id_service.dart';
+import '../utils/schema.dart';
+import 'ai_service.dart';
 
 class AIProcessingResult {
   final String cleanedText;
@@ -81,7 +83,25 @@ class AIProcessingService {
 
       final cleanedText = (data['cleaned_text'] as String?) ?? '';
       final structured = (data['structured_json'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final finalJson = (data['final_json'] as Map?)?.cast<String, dynamic>() ?? structured;
+      Map<String, dynamic> finalJson = (data['final_json'] as Map?)?.cast<String, dynamic>() ?? structured;
+
+      // Lightweight validation: ensure all 7 strict keys exist; else re-prompt once
+      if (!_hasAllStrictKeys(finalJson)) {
+        final apiKey = dotenv.maybeGet('GEMINI_API_KEY')?.trim();
+        if (apiKey != null && apiKey.isNotEmpty) {
+          try {
+            final endpoint = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey');
+            final prompt = getStructuredPrompt(cleanedText.isNotEmpty ? cleanedText : extractedText);
+            final strictText = await _callGeminiForText(endpoint, prompt);
+            final strictJson = _extractJsonFromText(strictText);
+            if (strictJson != null && _hasAllStrictKeys(strictJson)) {
+              finalJson = strictJson;
+            }
+          } catch (_) {
+            // swallow and keep original finalJson
+          }
+        }
+      }
 
       return AIProcessingResult(
         cleanedText: cleanedText,
@@ -100,18 +120,19 @@ class AIProcessingService {
         final refined = await _callGeminiForText(endpoint, refinePrompt);
 
         // b) Structure
-        final structurePrompt = 'You are a data structuring AI. Analyze the following extracted text and convert it into well-structured JSON. Include only meaningful fields like name, address, ID number, date, card number, etc., based on what appears. Do not invent data. Return valid JSON only — no comments or explanations.\n\nText:\n$refined';
-        final structureText = await _callGeminiForText(endpoint, structurePrompt);
-        final structured = _extractJsonFromText(structureText) ?? <String, dynamic>{};
-
-        // c) Finalize
-        final finalizePrompt = 'You are a validation and cleanup AI. Review this JSON data for consistency and accuracy. Fix obvious OCR misreads (like wrong date formats or misplaced values), ensure all keys follow lower_snake_case, and reformat it neatly as valid JSON.\n\nJSON Input:\n${jsonEncode(structured)}';
-        final finalText = await _callGeminiForText(endpoint, finalizePrompt);
-        final finalJson = _extractJsonFromText(finalText) ?? structured;
+        // b) Strict structure in one pass
+        final prompt = getStructuredPrompt(refined);
+        final strictText = await _callGeminiForText(endpoint, prompt);
+        Map<String, dynamic> finalJson = _extractJsonFromText(strictText) ?? <String, dynamic>{};
+        if (!_hasAllStrictKeys(finalJson)) {
+          // One retry with original OCR text
+          final retryText = await _callGeminiForText(endpoint, getStructuredPrompt(extractedText));
+          finalJson = _extractJsonFromText(retryText) ?? finalJson;
+        }
 
         return AIProcessingResult(
           cleanedText: refined.trim(),
-          structuredJson: structured,
+          structuredJson: finalJson,
           finalJson: finalJson,
         );
       } catch (_) {
@@ -130,6 +151,17 @@ class AIProcessingService {
       structuredJson: const {},
       finalJson: const {},
     );
+  }
+
+  bool _hasAllStrictKeys(Map<String, dynamic> json) {
+    final keys = json.keys.map((e) => e.toString().trim()).toSet();
+    for (final label in kStrictHeaderLabels) {
+      if (!keys.contains(label)) return false;
+      final v = json[label];
+      if (v == null) return false;
+      if (v is! String) return false;
+    }
+    return keys.length == kStrictHeaderLabels.length;
   }
 
   Future<String> _callGeminiForText(Uri endpoint, String prompt) async {

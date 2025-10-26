@@ -219,14 +219,19 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
         // Always navigate to the StructuredResultScreen. If AI output is empty
         // (e.g., no API key/proxy configured), derive a minimal structured map
         // so the new screen still appears instead of the legacy text screen.
-        final rawStructured = result.finalJson.isNotEmpty
+        final bool usedAi = result.finalJson.isNotEmpty;
+        final rawStructured = usedAi
             ? result.finalJson
             : _deriveFallbackStructuredData(
                 result.cleanedText.isNotEmpty ? result.cleanedText : extractedText,
               );
 
-        // Normalize to strict 7-field schema with 'NONE' fillers
-        final normalized = normalizeToStrictSchema(rawStructured);
+        // Normalize: if AI produced strict output, skip filling 'NONE' (already guaranteed);
+        // otherwise, fill missing with 'NONE' for fallback-derived data.
+        final normalized = normalizeToStrictSchema(
+          rawStructured,
+          fillMissingWithNone: !usedAi ? true : false,
+        );
 
     // Persist structured result via provider so the next screen can read it
     final sr = ScanResult(

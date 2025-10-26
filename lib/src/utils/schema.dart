@@ -123,6 +123,7 @@ String keyToHeaderLabel(String key) {
 Map<String, String> normalizeToStrictSchema(
   Map<String, dynamic> input, {
   bool keepExtras = true,
+  bool fillMissingWithNone = true,
 }) {
   final out = <String, String>{};
   // First pass: collect any values mapped to normalized keys
@@ -139,10 +140,14 @@ Map<String, String> normalizeToStrictSchema(
     }
   });
 
-  // Ensure all strict keys exist; fill missing with 'NONE'
+  // Ensure all strict keys exist; optionally fill missing with 'NONE'
   for (final key in kStrictKeys) {
-    if (!out.containsKey(key) || (out[key]?.trim().isEmpty ?? true)) {
+    final isMissingOrEmpty = !out.containsKey(key) || (out[key]?.trim().isEmpty ?? true);
+    if (isMissingOrEmpty && fillMissingWithNone) {
       out[key] = 'NONE';
+    } else if (isMissingOrEmpty && !fillMissingWithNone) {
+      // Keep as missing to reflect upstream strict contract if desired
+      out.putIfAbsent(key, () => '');
     }
   }
 

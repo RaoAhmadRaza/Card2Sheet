@@ -29,9 +29,13 @@ class PersistenceCoordinator {
     try {
       // Normalize incoming map to strict schema and include notes if present
       final normalized = normalizeToStrictSchema(structured);
-      final desiredHeaders = (destination.templateHeaders.isNotEmpty)
-          ? destination.templateHeaders
-          : defaultExportHeaders(includeNotes: normalized.containsKey(kNotesKey) && normalized[kNotesKey]!.trim().isNotEmpty);
+      // Always include Personal Thoughts as the 8th column (even if empty)
+      List<String> desiredHeaders = destination.templateHeaders.isNotEmpty
+          ? List<String>.from(destination.templateHeaders)
+          : defaultExportHeaders(includeNotes: true);
+      if (!desiredHeaders.contains(kNotesHeaderLabel)) {
+        desiredHeaders.add(kNotesHeaderLabel);
+      }
 
       switch (destination.type) {
         case SheetType.csv:
@@ -61,7 +65,7 @@ class PersistenceCoordinator {
           // Use XlsxService minimally by creating/merging
           final xlsxService = XlsxService();
           // Fallback simple path: if file exists, we cannot easily append without reading it fully.
-          // For now, we create new file if not exists; otherwise, we delegate to UI-level append logic.
+          // Create new file if not exists; otherwise, append to the existing workbook using header reconciliation.
           file = File(destination.path);
           if (!await file.exists()) {
             final values = valuesForHeaders(desiredHeaders, normalized);
@@ -69,7 +73,13 @@ class PersistenceCoordinator {
             await temp.copy(destination.path);
             file = File(destination.path);
           } else {
-            // Leave actual append to UI screen where workbook context exists.
+            final values = valuesForHeaders(desiredHeaders, normalized);
+            await xlsxService.appendRowToExistingXlsx(
+              desiredHeaders: desiredHeaders,
+              values: values,
+              filePath: destination.path,
+              sheetName: destination.sheetName ?? 'Sheet1',
+            );
           }
           break;
       }
