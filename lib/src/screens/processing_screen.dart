@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:card2sheet/src/services/ocr_service.dart';
 import 'package:card2sheet/src/services/ai_processing_service.dart';
 import 'structured_result_screen.dart';
+import '../../core/routes.dart';
 import '../models/scan_result.dart';
 import '../providers/scan_result_provider.dart';
 import '../services/analytics_service.dart';
@@ -241,14 +242,10 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
     await ref.read(scanResultProvider.notifier).setResult(sr, persist: false);
     ref.read(analyticsProvider).track('scan_completed');
 
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const StructuredResultScreen(),
-            transitionDuration: const Duration(milliseconds: 400),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-          ),
+        // Navigate to StructuredResultScreen and remove all routes above Home.
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const StructuredResultScreen()),
+          ModalRoute.withName(AppRoutes.home),
         );
       }
   } on TimeoutException {

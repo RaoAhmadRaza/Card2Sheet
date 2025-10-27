@@ -318,51 +318,13 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 16),
 
         // Sample Cards (debug only)
-        if (kDebugMode) ...[
-          _sectionHeader(title: 'Sample Cards'),
-          ...samples.map((card) => _buildCardItem(
-                name: card['name']!,
-                company: card['company']!,
-                position: card['position']!,
-                status: card['status']!,
-                avatar: card['avatar']!,
-                isReal: false,
-              )),
-        ],
+        // Sample cards section removed
         const SizedBox(height: 12),
       ],
     );
   }
 
-  Widget _sectionHeader({required String title, Widget? action}) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8.0, bottom: 12.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF1D1D1F),
-            ),
-          ),
-          if (action != null)
-            Theme(
-              data: Theme.of(context).copyWith(
-                textButtonTheme: TextButtonThemeData(
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF1D1D1F),
-                  ),
-                ),
-              ),
-              child: action,
-            ),
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildSectionHint(String text) {
     return Padding(

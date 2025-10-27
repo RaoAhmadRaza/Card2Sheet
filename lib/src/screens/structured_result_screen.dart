@@ -9,7 +9,8 @@ import 'package:csv/csv.dart';
 // import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 // Removed SharedPreferences; using providers instead
-import 'success_screen.dart';
+import '../../core/routes.dart';
+import 'home_screen.dart';
 import '../providers/scan_result_provider.dart';
 import '../providers/sheet_provider.dart';
 import '../providers/session_provider.dart';
@@ -262,15 +263,8 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
       // Optionally update session
       await ref.read(sessionProvider.notifier).updateLastFilePathIfNeeded();
       if (!mounted) return;
-      // Navigate to success screen after successful append
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => SuccessScreen(
-            filePath: path,
-            type: type,
-          ),
-        ),
-      );
+      // After successful save, return to HomeScreen with a clean stack
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (route) => false);
     } catch (e) {
       _showError('Failed to append: $e');
     } finally {
@@ -441,7 +435,16 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
       }
     }
 
-    return Scaffold(
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (route) => false,
+        );
+        return false;
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFF2F2F7), // systemGroupedBackground
       body: SafeArea(
         child: Center(
@@ -699,7 +702,7 @@ class _StructuredResultScreenState extends ConsumerState<StructuredResultScreen>
         ),
       ),
       )
-    );
+    ));
   }
 
   Widget _buildListTile({

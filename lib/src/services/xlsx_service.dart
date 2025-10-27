@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:excel/excel.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import '../utils/schema.dart';
 
 class XlsxService {
   Future<File> saveAsXlsx(
@@ -235,5 +236,80 @@ class XlsxService {
       await tmpFile.copy(filePath);
       try { await tmpFile.delete(); } catch (_) {}
     }
+  }
+
+  /// Remove the first row (after header) that matches the provided normalized values
+  /// according to the workbook's existing header row. Returns true if a row was removed.
+  Future<bool> removeRowMatchingNormalized({
+    required String filePath,
+    required Map<String, String> normalized,
+    String sheetName = 'Sheet1',
+  }) async {
+    final file = File(filePath);
+    if (!await file.exists()) return false;
+    final bytes = await file.readAsBytes();
+    final excel = Excel.decodeBytes(bytes);
+    final tables = excel.tables;
+    if (tables.isEmpty) return false;
+    final tableName = tables.containsKey(sheetName) ? sheetName : tables.keys.first;
+    final sheet = excel[tableName];
+
+    String _cellToString(dynamic v) {
+      if (v == null) return '';
+      final s = v.toString();
+      final m = RegExp(r'TextCellValue\((.*)\)').firstMatch(s);
+      return m != null ? (m.group(1) ?? '') : s;
+    }
+
+    // Read header row
+    if (sheet.rows.isEmpty) return false;
+    final header = sheet.rows.first.map((c) => _cellToString(c?.value)).toList();
+    // Build target values in header order
+    final target = header.map((h) {
+      final key = headerLabelToKey(h);
+      if (key == kNotesKey) return normalized[kNotesKey] ?? '';
+      return normalized[key] ?? 'NONE';
+    }).toList();
+
+    int matchRow = -1;
+    for (int r = 1; r < sheet.rows.length; r++) {
+      final row = sheet.rows[r].map((c) => _cellToString(c?.value)).toList();
+      // Align length
+      final len = header.length;
+      while (row.length < len) row.add('');
+      if (row.length > len) row.removeRange(len, row.length);
+      bool equal = true;
+      for (int c = 0; c < len; c++) {
+        if (row[c].toString().trim() != target[c].toString().trim()) {
+          equal = false;
+          break;
+        }
+      }
+      if (equal) {
+        matchRow = r;
+        break;
+      }
+    }
+
+  // If not found, treat as already deleted
+  if (matchRow == -1) return true;
+
+    // Remove the row by shifting subsequent rows up
+    for (int c = 0; c < header.length; c++) {
+      // Shift values up from matchRow+1 to end
+      for (int r = matchRow; r < sheet.rows.length - 1; r++) {
+        final nextVal = sheet.cell(CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r + 1)).value;
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: c, rowIndex: r)).value = nextVal;
+      }
+      // Clear last row cell
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: c, rowIndex: sheet.rows.length - 1)).value = null;
+    }
+
+    final updated = excel.encode();
+    if (updated != null) {
+      await file.writeAsBytes(updated, flush: true);
+      return true;
+    }
+    return false;
   }
 }
